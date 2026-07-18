@@ -2,7 +2,7 @@
 
 ## 1. 修正前與修正後 Commit
 * **修正前 Commit**: `13f4ca7a1a36230101eb300281c62393faedc9c1`
-* **修正後 Commit**: *（請見分支 `fix/pre-uat-blockers` 最新提交）*
+* **修正後 Commit**: `fd7edbb4fcc544e7fe740336db5b8db52248f77b`
 
 ---
 

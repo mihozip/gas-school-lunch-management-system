@@ -18,6 +18,7 @@ FORCE_PUSH=false
 OPEN_SCRIPT=false
 NO_DEPLOY=false
 DRY_RUN=false
+REPLACE_DEPLOYMENT=false
 
 # 解析參數
 while [[ $# -gt 0 ]]; do
@@ -48,6 +49,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dry-run)
       DRY_RUN=true
+      shift
+      ;;
+    --replace-deployment)
+      REPLACE_DEPLOYMENT=true
       shift
       ;;
     *)
@@ -185,10 +190,12 @@ fi
 # 8. 建立線上新版本 (clasp version)
 echo "🏷️ 正在建立線上新版本 (clasp version)..."
 VERSION_OUT=$(npx clasp version "Auto-deployed by deploy.sh at $(date)" 2>&1 || true)
-VERSION_NUM=$(node -e "const out = process.argv[1]; const m = out.match(/Created version\s+(\d+)/i) || out.match(/Version\s+(\d+)/i); console.log(m ? m[1] : '1');" "${VERSION_OUT}")
+VERSION_NUM=$(node -e "const out = process.argv[1]; const m = out.match(/Created version\s+(\d+)/i) || out.match(/Version\s+(\d+)/i); console.log(m ? m[1] : '');" "${VERSION_OUT}")
 
 if [ -z "$VERSION_NUM" ]; then
   echo "🛑 錯誤 [VERSION_CREATION_FAILED]：建立線上版本編號失敗。"
+  echo "VERSION_OUT 原始輸出："
+  echo "${VERSION_OUT}"
   exit 1
 fi
 
@@ -203,7 +210,9 @@ if [ "$NO_DEPLOY" = false ]; then
     DEPLOY_FILE=".deploy/production.json"
   fi
 
-  if [ -f "${DEPLOY_FILE}" ]; then
+  if [ "$REPLACE_DEPLOYMENT" = true ]; then
+    echo "⚠️ 收到 --replace-deployment 參數，將建立新的部署代替舊部署。"
+  elif [ -f "${DEPLOY_FILE}" ]; then
     DEPLOY_ID=$(node -e "try { console.log(require('./${DEPLOY_FILE}').deploymentId); } catch(e) { console.log(''); }")
   fi
 
@@ -211,12 +220,11 @@ if [ "$NO_DEPLOY" = false ]; then
     echo "🚀 正在更新既有部署 (ID: ${DEPLOY_ID}, 版本: ${VERSION_NUM})...."
     UPDATE_OUT=$(npx clasp redeploy "${DEPLOY_ID}" -V "${VERSION_NUM}" -d "${ENV_UPPER} Deployment Update" 2>&1 || true)
     if [[ "$UPDATE_OUT" == *"Error"* || "$UPDATE_OUT" == *"failed"* ]]; then
-      echo "🛑 錯誤 [DEPLOYMENT_UPDATE_FAILED]：更新部署失敗。將嘗試建立新部署..."
-      DEPLOY_ID=""
+      echo "🛑 錯誤 [DEPLOYMENT_UPDATE_FAILED]：更新部署失敗。保留原 deployment ID: ${DEPLOY_ID}"
+      echo "細節: ${UPDATE_OUT}"
+      exit 1
     fi
-  fi
-
-  if [ -z "$DEPLOY_ID" ]; then
+  else
     echo "🚀 正在建立新部署 (版本: ${VERSION_NUM})..."
     DEPLOY_OUT=$(npx clasp deploy -V "${VERSION_NUM}" -d "${ENV_UPPER} First Deployment" 2>&1 || true)
     if [[ "$DEPLOY_OUT" == *"Error"* || "$DEPLOY_OUT" == *"failed"* ]]; then
@@ -228,17 +236,35 @@ if [ "$NO_DEPLOY" = false ]; then
     DEPLOY_ID=$(node -e "const out = process.argv[1]; const m = out.match(/with deploymentId\s+([A-Za-z0-9_-]+)/i); console.log(m ? m[1] : '');" "${DEPLOY_OUT}")
   fi
 
-  # 從 npx clasp deployments 讀取 Web App URL
+  # 從 npx clasp deployments 讀取 Web App URL，並對應目前的 DEPLOY_ID
   DEPLOYMENTS_LIST=$(npx clasp deployments 2>&1 || true)
-  WEB_APP_URL=$(node -e "const out = process.argv[1]; const m = out.match(/(https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec)/i); console.log(m ? m[1] : '');" "${DEPLOYMENTS_LIST}")
+  WEB_APP_URL=$(node -e "
+    const out = process.argv[1];
+    const depId = process.argv[2];
+    const lines = out.split('\n');
+    let foundUrl = '';
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes(depId)) {
+        for (let j = i; j < Math.min(i + 5, lines.length); j++) {
+          const m = lines[j].match(/(https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec)/i);
+          if (m) {
+            foundUrl = m[1];
+            break;
+          }
+        }
+      }
+      if (foundUrl) break;
+    }
+    console.log(foundUrl);
+  " "${DEPLOYMENTS_LIST}" "${DEPLOY_ID}")
 
   if [ -z "$WEB_APP_URL" ]; then
     WEB_APP_URL="https://script.google.com/macros/s/${DEPLOY_ID}/exec"
   fi
 
-  # 保存部署狀態
+  # 保存部署狀態 (原子操作：先寫入臨時檔案，再 mv 覆蓋)
   DEPLOYED_AT=$(date +"%Y-%m-%d %H:%M:%S")
-  cat <<EOF > "${DEPLOY_FILE}"
+  cat <<EOF > "${DEPLOY_FILE}.tmp"
 {
   "environment": "${ENV_UPPER}",
   "scriptId": "${SCRIPT_ID}",
@@ -249,6 +275,7 @@ if [ "$NO_DEPLOY" = false ]; then
   "claspVersion": "3.3.0"
 }
 EOF
+  mv "${DEPLOY_FILE}.tmp" "${DEPLOY_FILE}"
 
   # 遮罩處理
   MASKED_SCRIPT_ID="${SCRIPT_ID:0:4}****${SCRIPT_ID: -4}"

@@ -88,9 +88,6 @@
 * `npm run check:static`：**PASSED**（包含 8 項指標檢查，確保程式碼結構完整）
 * `bash -n deploy.sh`：**PASSED**
 * `npm run deploy:dry-run`：**PASSED**
-
----
-
-## 4. 交付狀態
+* **Pull Request URL**: https://github.com/mihozip/gas-school-lunch-management-system/pull/1
 * **PRE_UAT_FIX_STATUS**: `PASSED`
 * **說明**：上述阻斷性問題已全數修復完畢，且靜態完整性檢查與部署 dry-run 均順利通過！

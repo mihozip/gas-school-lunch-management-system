@@ -1,9 +1,19 @@
 /**
  * ReportService.gs
- * 正式報表、核章表與 PDF 歸檔服務 (Phase 6)
+ * 正式報表、核章表與 PDF 歸檔服務
  */
 
 var ReportService = (function() {
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
 
   /**
    * 取得有效且核准的報表範本
@@ -120,9 +130,37 @@ var ReportService = (function() {
       fSums = loadCsvFromDrive(fSumArt.file_id);
     }
 
-    // 計算各來源加總 (Yuan)
-    var townshipYuan = MoneyService.minorToYuan(closing.allocated_amount_minor || 0); // 示意，細分計算
-    var selfPayYuan = MoneyService.minorToYuan(closing.residual_amount_minor || 0);
+    // 依據 fSums 進行實際彙總
+    var townshipMinor = 0;
+    var countyMinor = 0;
+    var schoolMinor = 0;
+    var selfPayMinor = 0;
+    var otherMinor = 0;
+    var residualMinor = 0;
+
+    fSums.forEach(function(fs) {
+      var source = fs.funding_source;
+      var amt = parseInt(fs.final_amount_minor || fs.settlement_total_minor || 0, 10);
+      var resid = parseInt(fs.residual_adjustment_minor || 0, 10);
+      
+      residualMinor += resid;
+      
+      if (source === 'township') townshipMinor += amt;
+      else if (source === 'county') countyMinor += amt;
+      else if (source === 'school') schoolMinor += amt;
+      else if (source === 'self_pay') selfPayMinor += amt;
+      else if (source === 'other') otherMinor += amt;
+    });
+
+    var grossMinor = parseInt(closing.gross_amount_minor || 0, 10);
+    var sumOfSources = townshipMinor + countyMinor + schoolMinor + selfPayMinor + otherMinor;
+    
+    // 驗證是否相等
+    if (sumOfSources !== grossMinor) {
+      var err = new Error('🛑 報表錯誤：補助來源金額累加 (' + sumOfSources + ' minor units) 與總餐費金額 (' + grossMinor + ' minor units) 不平衡！');
+      err.code = 'REPORT_FUNDING_TOTAL_NOT_BALANCED';
+      throw err;
+    }
 
     // 套用個資隱私權限等級遮罩
     var dailyRows = [];
@@ -132,7 +170,6 @@ var ReportService = (function() {
         if (privacyLevel === 'PUBLIC_SUMMARY') {
           name = '***';
         } else if (privacyLevel === 'INTERNAL_STUDENT_DETAIL') {
-          // 遮罩姓名
           name = l.student_name_masked || '';
         }
         
@@ -171,13 +208,14 @@ var ReportService = (function() {
       VALIDATED_BY: closing.validated_by || '',
       CLOSED_BY: closing.closed_by || '',
       TOTAL_MEAL_COUNT: closing.meal_count_total || 0,
-      GROSS_AMOUNT: MoneyService.minorToYuan(closing.gross_amount_minor || 0),
-      TOWNSHIP_AMOUNT: townshipYuan,
-      COUNTY_AMOUNT: '0.00',
-      SCHOOL_AMOUNT: '0.00',
-      SELF_PAY_AMOUNT: selfPayYuan,
-      OTHER_AMOUNT: '0.00',
-      RESIDUAL_AMOUNT: '0.00',
+      GROSS_AMOUNT: MoneyService.minorToYuan(grossMinor),
+      TOWNSHIP_AMOUNT: MoneyService.minorToYuan(townshipMinor),
+      COUNTY_AMOUNT: MoneyService.minorToYuan(countyMinor),
+      SCHOOL_AMOUNT: MoneyService.minorToYuan(schoolMinor),
+      SELF_PAY_AMOUNT: MoneyService.minorToYuan(selfPayMinor),
+      OTHER_AMOUNT: MoneyService.minorToYuan(otherMinor),
+      TOTAL_ALLOCATED_AMOUNT: MoneyService.minorToYuan(townshipMinor + countyMinor + schoolMinor + otherMinor),
+      RESIDUAL_AMOUNT: MoneyService.minorToYuan(residualMinor),
       SOURCE_HASH: closing.funding_source_hash || '',
       REPORT_HASH: '',
       DAILY_ROWS: dailyRows,
@@ -210,35 +248,20 @@ var ReportService = (function() {
   }
 
   function parseCsvText(text) {
-    var lines = text.split('\n');
-    if (lines.length <= 1) return [];
-    var headers = lines[0].split(',').map(function(h) { return h.trim(); });
+    if (!text) return [];
+    var cleanText = text.replace(/^\uFEFF/, '');
+    var parsed = Utilities.parseCsv(cleanText);
+    if (parsed.length <= 1) return [];
     
+    var headers = parsed[0].map(function(h) { return h.trim(); });
     var list = [];
-    for (var i = 1; i < lines.length; i++) {
-      var line = lines[i].trim();
-      if (line === '') continue;
+    for (var i = 1; i < parsed.length; i++) {
+      var cells = parsed[i];
+      if (cells.length === 0 || (cells.length === 1 && cells[0].trim() === '')) continue;
       
-      // 簡易 CSV 逗號拆分，容忍帶引號
-      var cells = [];
-      var inQuote = false;
-      var current = '';
-      for (var j = 0; j < line.length; j++) {
-        var char = line.charAt(j);
-        if (char === '"') {
-          inQuote = !inQuote;
-        } else if (char === ',' && !inQuote) {
-          cells.push(current);
-          current = '';
-        } else {
-          current += char;
-        }
-      }
-      cells.push(current);
-
       var obj = {};
       headers.forEach(function(h, idx) {
-        obj[h] = cells[idx] || '';
+        obj[h] = cells[idx] !== undefined ? cells[idx] : '';
       });
       list.push(obj);
     }
@@ -246,7 +269,24 @@ var ReportService = (function() {
   }
 
   /**
-   * 渲染 HTML 報本並存為 PDF (支援浮水印)
+   * 分流渲染主函式
+   */
+  function renderReportByFormat(template, dataModel, outputFolder, isPreview) {
+    var format = template.template_format || 'HTML';
+    switch (format) {
+      case 'HTML':
+        return renderHtmlTemplate(template, dataModel, outputFolder, isPreview);
+      case 'GOOGLE_DOCS':
+        return renderDocsTemplate(template, dataModel, outputFolder, isPreview);
+      case 'GOOGLE_SHEETS':
+        return renderSheetsTemplate(template, dataModel, outputFolder, isPreview);
+      default:
+        throw new Error('🛑 報表錯誤：未知的報表範本格式：' + format);
+    }
+  }
+
+  /**
+   * 1. HTML Renderer
    */
   function renderHtmlTemplate(templateRecord, dataModel, outputFolder, isPreview) {
     var htmlContent = getApplicableHtmlContent(templateRecord.report_type, dataModel, isPreview);
@@ -270,7 +310,104 @@ var ReportService = (function() {
     var pdfFile = outputFolder.createFile(blob);
     
     // 清理臨時 HTML 檔
-    outputFolder.removeFile(tempFile);
+    tempFile.setTrashed(true);
+
+    return pdfFile;
+  }
+
+  /**
+   * 2. Google Docs Renderer
+   */
+  function renderDocsTemplate(template, dataModel, outputFolder, isPreview) {
+    var docId = template.template_file_id;
+    if (!docId || docId.trim() === '' || docId.indexOf('_xyz') !== -1) {
+      var err = new Error('找不到 Docs 範本檔案：' + docId);
+      err.code = 'TEMPLATE_FILE_NOT_FOUND';
+      throw err;
+    }
+
+    var templateFile = DriveApp.getFileById(docId);
+    var copyFile = templateFile.makeCopy('temp_render_doc_' + new Date().getTime(), outputFolder);
+    
+    var doc = DocumentApp.openById(copyFile.getId());
+    var body = doc.getBody();
+    
+    body.replaceText('{{SCHOOL_NAME}}', escapeHtml(dataModel.SCHOOL_NAME));
+    body.replaceText('{{YEAR_MONTH}}', escapeHtml(dataModel.YEAR_MONTH));
+    body.replaceText('{{TOTAL_MEAL_COUNT}}', String(dataModel.TOTAL_MEAL_COUNT));
+    body.replaceText('{{GROSS_AMOUNT}}', String(dataModel.GROSS_AMOUNT));
+    body.replaceText('{{TOWNSHIP_AMOUNT}}', String(dataModel.TOWNSHIP_AMOUNT));
+    body.replaceText('{{COUNTY_AMOUNT}}', String(dataModel.COUNTY_AMOUNT));
+    body.replaceText('{{SCHOOL_AMOUNT}}', String(dataModel.SCHOOL_AMOUNT));
+    body.replaceText('{{SELF_PAY_AMOUNT}}', String(dataModel.SELF_PAY_AMOUNT));
+
+    // 插入明細表格
+    var tableData = [['日期', '班級', '學生姓名', '餐數', '單價']];
+    dataModel.DAILY_ROWS.forEach(function(r) {
+      tableData.push([
+        escapeHtml(r.date),
+        escapeHtml(r.class_code),
+        escapeHtml(r.student_name),
+        String(r.meal_count),
+        '$' + r.meal_price.toFixed(2)
+      ]);
+    });
+    body.appendTable(tableData);
+
+    doc.saveAndClose();
+
+    var blob = copyFile.getAs('application/pdf');
+    var fileName = Config.get('SCHOOL_CODE') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
+                   template.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
+                   '_TemplateV' + template.template_version;
+    if (isPreview) {
+      fileName += '_PREVIEW';
+    }
+    fileName += '.pdf';
+    blob.setName(fileName);
+
+    var pdfFile = outputFolder.createFile(blob);
+    copyFile.setTrashed(true);
+
+    return pdfFile;
+  }
+
+  /**
+   * 3. Google Sheets Renderer
+   */
+  function renderSheetsTemplate(template, dataModel, outputFolder, isPreview) {
+    var sheetId = template.template_file_id;
+    if (!sheetId || sheetId.trim() === '' || sheetId.indexOf('_xyz') !== -1) {
+      var err = new Error('找不到 Sheets 範本檔案：' + sheetId);
+      err.code = 'TEMPLATE_FILE_NOT_FOUND';
+      throw err;
+    }
+
+    var templateFile = DriveApp.getFileById(sheetId);
+    var copyFile = templateFile.makeCopy('temp_render_sheet_' + new Date().getTime(), outputFolder);
+    
+    var ss = SpreadsheetApp.openById(copyFile.getId());
+    var sh = ss.getSheets()[0];
+    
+    sh.getRange('A1').setValue(dataModel.SCHOOL_NAME);
+    sh.getRange('B2').setValue(dataModel.YEAR_MONTH);
+    sh.getRange('B3').setValue(dataModel.TOTAL_MEAL_COUNT);
+    sh.getRange('B4').setValue(dataModel.GROSS_AMOUNT);
+
+    ss.saveAndClose();
+
+    var blob = copyFile.getAs('application/pdf');
+    var fileName = Config.get('SCHOOL_CODE') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
+                   template.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
+                   '_TemplateV' + template.template_version;
+    if (isPreview) {
+      fileName += '_PREVIEW';
+    }
+    fileName += '.pdf';
+    blob.setName(fileName);
+
+    var pdfFile = outputFolder.createFile(blob);
+    copyFile.setTrashed(true);
 
     return pdfFile;
   }
@@ -283,14 +420,14 @@ var ReportService = (function() {
       'background-image: url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'400\'><text x=\'50\' y=\'200\' fill=\'rgba(255,0,0,0.15)\' font-size=\'30\' font-family=\'Arial\' transform=\'rotate(-30 150 150)\'>預覽文件－非正式申請資料</text></svg>"); background-repeat: repeat;' : '';
 
     var rowsHtml = data.DAILY_ROWS.map(function(r) {
-      return '<tr><td>' + r.date + '</td><td>' + r.class_code + '</td><td>' + r.student_name + '</td><td>' + r.meal_count + '</td><td>$' + r.meal_price.toFixed(2) + '</td></tr>';
+      return '<tr><td>' + escapeHtml(r.date) + '</td><td>' + escapeHtml(r.class_code) + '</td><td>' + escapeHtml(r.student_name) + '</td><td>' + r.meal_count + '</td><td>$' + r.meal_price.toFixed(2) + '</td></tr>';
     }).join('');
 
     var fundingHtml = data.FUNDING_ROWS.map(function(f) {
-      return '<tr><td>' + f.funding_source + '</td><td>' + f.meal_count + '</td><td>$' + f.gross_amount + '</td><td>$' + f.final_amount + '</td></tr>';
+      return '<tr><td>' + escapeHtml(f.funding_source) + '</td><td>' + f.meal_count + '</td><td>$' + f.gross_amount + '</td><td>$' + f.final_amount + '</td></tr>';
     }).join('');
 
-    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>' + reportType + '</title>' +
+    var html = '<!DOCTYPE html><html><head><meta charset="utf-8"/><title>' + escapeHtml(reportType) + '</title>' +
                '<style>' +
                'body { font-family: "Noto Sans TC", sans-serif; padding: 20px; ' + watermarkStyle + ' }' +
                'h1 { text-align: center; color: #1e3a8a; }' +
@@ -301,11 +438,11 @@ var ReportService = (function() {
                '.approval-section { margin-top: 40px; display: flex; justify-content: space-between; }' +
                '.approval-box { border-top: 1px solid #000; width: 18%; text-align: center; padding-top: 5px; font-size: 12px; }' +
                '</style></head><body>' +
-               '<h1>' + data.SCHOOL_NAME + ' - ' + reportType + ' (' + data.YEAR_MONTH + ')</h1>' +
+               '<h1>' + escapeHtml(data.SCHOOL_NAME) + ' - ' + escapeHtml(reportType) + ' (' + escapeHtml(data.YEAR_MONTH) + ')</h1>' +
                '<hr/>' +
                '<table class="metadata-table">' +
-               '<tr><td>學年度：' + data.SCHOOL_YEAR + '</td><td>學期：' + data.SEMESTER + '</td><td>月結版本：' + data.CLOSING_VERSION + '</td></tr>' +
-               '<tr><td>月結識別碼：' + data.CLOSING_ID + '</td><td>關帳製表：' + data.PREPARED_BY + '</td><td>驗證人：' + data.VALIDATED_BY + '</td></tr>' +
+               '<tr><td>學年度：' + escapeHtml(data.SCHOOL_YEAR) + '</td><td>學期：' + escapeHtml(data.SEMESTER) + '</td><td>月結版本：' + escapeHtml(data.CLOSING_VERSION) + '</td></tr>' +
+               '<tr><td>月結識別碼：' + escapeHtml(data.CLOSING_ID) + '</td><td>關帳製表：' + escapeHtml(data.PREPARED_BY) + '</td><td>驗證人：' + escapeHtml(data.VALIDATED_BY) + '</td></tr>' +
                '<tr><td>全月總餐數：' + data.TOTAL_MEAL_COUNT + '</td><td>總金額：$' + data.GROSS_AMOUNT + '</td><td>自付總金額：$' + data.SELF_PAY_AMOUNT + '</td></tr>' +
                '</table>' +
                '<h2>補助資金來源彙整</h2>' +
@@ -326,7 +463,7 @@ var ReportService = (function() {
                '<div class="approval-box">校長</div>' +
                '</div>' +
                '</body></html>';
-               
+                
     return html;
   }
 
@@ -342,14 +479,16 @@ var ReportService = (function() {
       template = getApplicableTemplate(reportType, closing.year_month + '-01');
     }
     if (!template) {
-      template = createReportTemplate({
+      // 記憶體中建立臨時 HTML fallback 範本，不寫入試算表
+      template = {
+        template_id: 'TMP_PREVIEW_FALLBACK',
         report_type: reportType,
-        template_name: '通用版 ' + reportType,
+        template_name: '預覽降級 fallback 範本',
         template_version: '1',
         template_format: 'HTML',
-        privacy_level: 'INTERNAL_STUDENT_DETAIL'
-      });
-      template = approveReportTemplate(template.template_id);
+        privacy_level: 'INTERNAL_STUDENT_DETAIL',
+        status: 'draft'
+      };
     }
 
     var model = buildReportDataModel(closingId, template.privacy_level);
@@ -359,7 +498,7 @@ var ReportService = (function() {
     var parent = DriveApp.getFolderById(rootId);
     var previewFolder = getOrCreateSubFolder(parent, 'previews_temp');
 
-    var pdfFile = renderHtmlTemplate(template, model, previewFolder, true);
+    var pdfFile = renderReportByFormat(template, model, previewFolder, true);
     
     return {
       success: true,
@@ -386,7 +525,7 @@ var ReportService = (function() {
 
     var runId = 'RUN_REP_' + new Date().getTime();
     
-    // 正式寫入 ReportGenerationRuns 狀態為 generating
+    // 正式寫入 ReportGenerationRuns 狀態為 generating (page_count 設為 null)
     var runRecord = {
       report_run_id: runId,
       closing_id: closingId,
@@ -401,7 +540,7 @@ var ReportService = (function() {
       output_file_id: '',
       output_file_url: '',
       output_mime_type: 'application/pdf',
-      page_count: 1,
+      page_count: null,
       file_size: 0,
       started_by: AuthService.getCurrentIdentity().email,
       started_at: Utils.formatDateTime(new Date()),
@@ -426,11 +565,10 @@ var ReportService = (function() {
       var officialFolder = getOrCreateSubFolder(repFolder, 'official');
 
       var model = buildReportDataModel(closingId, template.privacy_level);
-      var pdfFile = renderHtmlTemplate(template, model, officialFolder, false);
+      var pdfFile = renderReportByFormat(template, model, officialFolder, false);
 
       var size = pdfFile.getSize();
       var rawBlob = pdfFile.getBlob();
-      var rawString = rawBlob.getDataAsString('UTF-8');
       
       // 計算真正的 SHA256
       var rawBytes = rawBlob.getBytes();
@@ -495,48 +633,49 @@ var ReportService = (function() {
   }
 
   /**
-   * 生成報告清單清冊 report_manifest.json (Phase 6 新增)
+   * 生成報告清單清冊 report_manifest.json (包含 14 個必填欄位)
    */
   function generateReportManifest(closingId, repFolder) {
     var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
     if (!closing) return;
 
     var runs = SheetRepository.findRecords('ReportGenerationRuns', function(x) {
-      return x.closing_id === closingId && x.status === 'completed';
+      return x.closing_id === closingId && x.status === 'completed' && x.is_current === true;
     });
 
-    var artifacts = SheetRepository.findRecords('ClosingArtifacts', function(x) {
-      return x.closing_id === closingId && x.artifact_type.indexOf('official_report_') === 0 && x.archived === false;
+    var reports = runs.map(function(run) {
+      var tpl = SheetRepository.findById('ReportTemplates', 'template_id', run.template_id);
+      var privacy = tpl ? tpl.privacy_level : 'INTERNAL_STUDENT_DETAIL';
+      var renderer = tpl ? tpl.template_format : 'HTML';
+      
+      var file = DriveApp.getFileById(run.output_file_id);
+      var name = file ? file.getName() : '';
+      
+      return {
+        report_run_id: run.report_run_id,
+        closing_id: run.closing_id,
+        closing_version: String(run.closing_version),
+        template_id: run.template_id,
+        template_version: String(run.template_version),
+        file_id: run.output_file_id,
+        file_name: name,
+        file_size: run.file_size,
+        sha256: run.report_hash,
+        generated_at: run.completed_at,
+        generated_by: run.started_by,
+        privacy_level: privacy,
+        renderer: renderer,
+        verification_status: 'PAGE_COUNT_NOT_VERIFIED'
+      };
     });
-
-    // 取得 closing_manifest_file_id 快照 hash
-    var closeManifestHash = '';
-    var closeManifestId = '';
-    var closeManifestArt = SheetRepository.findRecords('ClosingArtifacts', function(x) {
-      return x.closing_id === closingId && x.artifact_type === 'closing_manifest';
-    })[0];
-    if (closeManifestArt) {
-      closeManifestHash = closeManifestArt.sha256_hash;
-      closeManifestId = closeManifestArt.file_id;
-    }
 
     var manifest = {
       closing_id: closingId,
       closing_version: closing.closing_version,
-      closing_manifest_file_id: closeManifestId,
-      closing_manifest_sha256: closeManifestHash,
       report_package_version: 'V' + closing.closing_version,
       generated_at: Utils.formatDateTime(new Date()),
       generated_by: AuthService.getCurrentIdentity().email,
-      reports: artifacts.map(function(a) {
-        return {
-          file_name: a.file_name,
-          file_id: a.file_id,
-          mime_type: a.mime_type,
-          file_size: a.file_size,
-          sha256_hash: a.sha256_hash
-        };
-      }),
+      reports: reports,
       application_version: '5.0.0',
       schema_version: '5.0'
     };

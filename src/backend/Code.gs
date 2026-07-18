@@ -722,7 +722,7 @@ function apiGetCurrentClosing(yearMonth) {
   }
 }
 
-function apiValidateClosing(yearMonth) {
+function apiValidateMonthlyClosingReadiness(yearMonth) {
   try {
     var readiness = MonthClosingService.validateClosingReadiness(yearMonth);
     
@@ -807,7 +807,7 @@ function apiGetClosingManifest(closingId) {
   }
 }
 
-function apiValidateClosing(closingId) {
+function apiValidateClosingRecord(closingId) {
   try {
     var result = MonthClosingService.validateClosing(closingId);
     return Utils.createResponse(true, result);
@@ -990,22 +990,6 @@ function apiGetTriggerStatus() {
   }
 }
 
-function apiInstallDailyCalculationTrigger() {
-  try {
-    var result = TriggerService.installDailyCalculationTrigger();
-    return Utils.createResponse(true, result);
-  } catch (e) {
-    return Utils.createResponse(false, null, 'TRIGGER_ERROR', '啟用定時排程失敗', e.message);
-  }
-}
 
-function apiRemoveDailyCalculationTrigger() {
-  try {
-    var result = TriggerService.removeDailyCalculationTrigger();
-    return Utils.createResponse(true, result);
-  } catch (e) {
-    return Utils.createResponse(false, null, 'TRIGGER_ERROR', '停用定時排程失敗', e.message);
-  }
-}
 
 

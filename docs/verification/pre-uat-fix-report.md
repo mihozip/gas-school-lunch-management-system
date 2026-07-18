@@ -2,7 +2,7 @@
 
 ## 1. 修正前與修正後 Commit
 * **修正前 Commit**: `13f4ca7a1a36230101eb300281c62393faedc9c1`
-* **修正後 Commit**: `fd7edbb4fcc544e7fe740336db5b8db52248f77b`
+* **修正後 Commit**: 待 commit (第二輪修正)
 
 ---
 
@@ -10,19 +10,25 @@
 * **CI 設定與安裝**：
   * [package.json](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/package.json) (新增 `check:static` 指令)
   * [.github/workflows/ci.yml](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/.github/workflows/ci.yml) (CI 整合靜態分析與 dry-run 步驟)
-  * [tools/static-check.mjs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/tools/static-check.mjs) (新增靜態檢查工具)
+  * [tools/static-check.mjs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/tools/static-check.mjs) (新增靜態檢查工具，擴充 12 項規則)
 * **部署與規格政策**：
-  * [deploy.sh](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/deploy.sh) (修正版本號解析、redeploy 防護、URL 精準匹配、原子化檔案寫入)
+  * [deploy.sh](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/deploy.sh) (新增 CREATE_IF_MISSING / FORCE_PUSH 控制、DEPLOY_ID 驗證、exit code 檢查、URL 格式匹配)
   * [README.md](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/README.md) (刪除舊式手動部署、統一網域 access 說明、更新狀態進度)
   * [SECURITY.md](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/SECURITY.md) (使用 GitHub Private Vulnerability Reporting，防範 Placeholder 通報)
 * **後端服務模組**：
-  * [src/backend/SetupService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/SetupService.gs) (匯出 `initializeDatabaseForSs`、移除舊版雙軌 `bootstrapSystem`、實現初始化等冪防破壞寫入)
-  * [src/backend/BootstrapService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/BootstrapService.gs) (補強 `CREATE_SYSTEM_ADMIN` 與 `RUN_HEALTH_CHECK` 真實行為、步驟順序防護、環境一致性檢查)
-  * [src/backend/SubsidyRuleService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/SubsidyRuleService.gs) (整合 BPS 費率寫入與修改驗證、補足 Migration Meta 記錄)
-  * [src/backend/ReportService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/ReportService.gs) (建立 HTML/Docs/Sheets 三分流渲染器、金額彙整平衡檢驗與 BOM CSV 解析)
-  * [src/backend/Code.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/Code.gs) (拆分重複的 `apiValidateClosing` 頂層函式、移除重複的 Trigger APIs)
-  * [src/backend/TestRunner.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/TestRunner.gs) (重構 TestRunner，將假測試修改為 skipped，留下 19 項真實測試)
-  * 修正 `LockServiceHelper` 命名（共 9 個服務檔案已全部修正）
+  * [src/backend/SetupService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/SetupService.gs) (ENVIRONMENT 動態化、SubsidyRules 預設 enabled=false、Config.clearAllCache)
+  * [src/backend/BootstrapService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/BootstrapService.gs) (CREATE_DEFAULT_TEMPLATES 等冪化、TEST 環境獨立設定、環境參數傳遞)
+  * [src/backend/SubsidyRuleService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/SubsidyRuleService.gs) (Number 取代 parseInt、驗證提前至轉換前、migrateSubsidyRatesToBasisPoints 移除)
+  * [src/backend/ReportService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/ReportService.gs) (Docs regex escape、移除 escapeHtml、Sheets flush 取代 saveAndClose、CSV 錯誤阻斷、settlement_total_minor 優先、角色權限 5 函式、getApplicableTemplate 日期與版本排序、manifest setTrashed)
+  * [src/backend/MonthClosingService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/MonthClosingService.gs) (移除全部 4 處 }).error)
+  * [src/backend/MealSuspensionService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/MealSuspensionService.gs)
+  * [src/backend/FundingCalculationService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/FundingCalculationService.gs)
+  * [src/backend/MonthlyReconciliationService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/MonthlyReconciliationService.gs)
+  * [src/backend/MealExceptionService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/MealExceptionService.gs)
+  * [src/backend/DailyMealCalculationService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/DailyMealCalculationService.gs)
+  * [src/backend/SchoolDaysService.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/SchoolDaysService.gs)
+  * [src/backend/Code.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/Code.gs) (移除重複 Trigger API)
+  * [src/backend/TestRunner.gs](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/backend/TestRunner.gs) (T16 移除寫死 approved 驗證)
 * **前端 View 模板與 Script**：
   * [src/frontend/MonthClosing.html](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/frontend/MonthClosing.html) (對接新 API)
   * [src/frontend/FundingCalculation.html](file:///Users/albertpeng/Documents/秘書群工作空間/水月工作區/cli專案/GAS_school_lunch_management_system/src/frontend/FundingCalculation.html) (對接新 API)
@@ -32,62 +38,93 @@
 
 ## 3. 各項修正具體結果
 
-### 3.1 initializeDatabaseForSs export 結果
-`SetupService.gs` 已將 `initializeDatabaseForSs` 正常匯出，且移除了舊版 `bootstrapSystem`。靜態測試 `typeof SetupService.initializeDatabaseForSs === 'function'` 通過。
+### 3.1 LockServiceHelper 回傳值 (Item 一)
+全專案 `}).error` 已全數清除。共修改 16 處：
+- MealSuspensionService.gs (1)
+- FundingCalculationService.gs (1)
+- MonthlyReconciliationService.gs (1)
+- MealExceptionService.gs (3)
+- DailyMealCalculationService.gs (2)
+- SchoolDaysService.gs (4)
+- MonthClosingService.gs (4)
+- SubsidyRuleService.gs (1, migrateSubsidyRatesToBasisPoints 完全移除)
+- `grep -RInE '\}\)\.error' src/backend` 結果為 0
 
-### 3.2 舊 bootstrapSystem 移除結果
-全專案搜尋 `bootstrapSystem` 及 `apiBootstrapSystem` 其結果均為 0。已全數改為呼叫新版 `BootstrapService` 狀態機，確保只有一套初始化流程。
+### 3.2 Bootstrap 範本治理 (Item 二)
+- `BootstrapService.gs` 的 `CREATE_DEFAULT_TEMPLATES` 步驟不再批次 `setValue('draft')` 覆寫所有範本狀態
+- 改為等冪建立：只新增缺失的 3 個預設範本為 `draft`，已存在的範本一律不修改
+- `tools/static-check.mjs` 新增 `checkBootstrapDraftSet` 檢驗
 
-### 3.3 LockService 修正結果
-已將所有 `LockService.runWithLock` 全數修正為自訂之 `LockServiceHelper.runWithLock`。後端檢索結果為 0。原生 `LockService.getScriptLock` 則正常保留於狀態機中。
+### 3.3 初始化環境與預設規則 (Item 三)
+- `SetupService.initializeDatabaseForSs` 的 `ENVIRONMENT` 值改為動態讀取 `settings.environment || 'UAT'`
+- `BootstrapService` 對主資料庫傳入 `settings.environment = env`
+- 測試資料庫傳入獨立的 `testSettings.environment = 'TEST'`（使用 JSON 深拷貝）
+- `SubsidyRules` 預設規則的 `enabled` 全部改為 `false`
+- `initializeDatabaseForSs` 結尾加入 `Config.clearAllCache()` 防止快取舊值
 
-### 3.4 Basis Points 統一結果
-- SetupService 預設規則之費率已由 `'0.50'` / `'1.00'` 改為 `'5000'` / `'10000'`。
-- `SystemConfig` 已預設寫入 `RATE_STORAGE_FORMAT = BASIS_POINTS`，並廢除 `SUBSIDY_RATE_LEGACY_FORMAT`。
-- `SubsidyRuleService.createSubsidyRule()` 及 `updateSubsidyRule()` 會執行 `parseInt` 並呼叫 `validateRateBasisPoints` 強制限制在 0～10000 內。
-- 前端 `Scripts.html` 預覽費率時會自動將 5000 轉換為 50% 呈現。
-- 遷移完成後，將寫入 `RATE_STORAGE_FORMAT = BASIS_POINTS`、`SUBSIDY_RATE_MIGRATED_AT`、`SUBSIDY_RATE_MIGRATED_BY`、`SUBSIDY_RATE_MIGRATION_ID` 等設定。
+### 3.4 補助率驗證與遷移 (Item 四)
+- `validateRateBasisPoints` 改用 `Number(rateBps)` 搭配 `Number.isFinite` 與 `Number.isInteger` 嚴格驗證
+- `createSubsidyRule` 與 `updateSubsidyRule` 改用 `Number()` 取代 `parseInt`
+- 驗證提前至 Number 轉換前，以 raw 值進行 validateRateBasisPoints
+- `migrateSubsidyRatesToBasisPoints` 函式與 export 已完全移除
 
-### 3.5 API 重複修正結果
-`Code.gs` 中重複的 `apiValidateClosing` 拆分為：
-* `apiValidateMonthlyClosingReadiness(yearMonth)` (供對帳就緒性檢驗使用)
-* `apiValidateClosingRecord(closingId)` (供核可草稿使用)
-所有前端（`MonthClosing.html`, `FundingCalculation.html`, `Scripts.html`）皆已同步更新對接。同時在 `tools/static-check.mjs` 中加入了重複頂層 API 函式名稱的禁止檢查。
+### 3.5 Google Docs Renderer (Item 五)
+- `replaceText` 第一參數改為 regex escape 格式 (`\\{\\{SCHOOL_NAME\\}\\}`)
+- 移除 Docs 純文字中不必要的 `escapeHtml` 處理
+- `DriveApp.getFileById` 與 `DocumentApp.openById` 包裹於 try/catch，錯誤時統一拋出 `TEMPLATE_FILE_NOT_FOUND`
+- 失敗時自動清理暫存副本 (`copyFile.setTrashed(true)`)
 
-### 3.6 Bootstrap 真實行為補強
-- `CREATE_SYSTEM_ADMIN`：依據登入 Email 檢查 Users，不存在時才建立管理員帳戶並寫入 `AuditLogs`。
-- `RUN_HEALTH_CHECK`：真正呼叫 `SetupService.getSystemStatus` 檢查 29 張工作表及時區設定。若不符，狀態設為 `FAILED` 並拋錯。
-- `COMPLETE`：必須等 `RUN_HEALTH_CHECK` 通過後方可被執行。
-- 加入了 `BOOTSTRAP_STEP_MISMATCH` 順序防護及 `BOOTSTRAP_ENV_MISMATCH` 環境防護。 UAT 與 PRODUCTION 環境一旦確認不可變更。PRODUCTION 下絕不建立測試資源。
+### 3.6 Google Sheets Renderer (Item 六)
+- 移除無效的 `ss.saveAndClose()`，改為 `SpreadsheetApp.flush()`
+- 新增 DriveApp / SpreadsheetApp try/catch 防護，拋出 `TEMPLATE_FILE_NOT_FOUND`
+- 工作表存在性檢查
+- 預覽模式新增浮水印標記 (`⚠️ 預覽文件 — 非正式申請資料`)
+- 產出 PDF 後以 `setTrashed(true)` 清除暫存 Spreadsheet
 
-### 3.7 TestRunner 真實測試數量與 skipped 清單
-- 將原 105 項大量 placeholder 測試移除了，只留下 **19 項真實測試**。
-- `T13` (Docs) 與 `T14` (Sheets) 自動檢測 `TEST_TEMPLATE_DOC_ID` / `TEST_TEMPLATE_SHEET_ID` 是否設定。若未設定或為假 ID，則自動將測試狀態標記為 `skipped`，不再假裝 passed，並在測試報告中明列 `skipped_reason`。
-- 其他測試分類包含 `UNIT`, `INTEGRATION`, `PERFORMANCE`, `AUTH`。
+### 3.7 報表快照與金額彙總 (Item 七)
+- `loadCsvFromDrive` 在正式報表流程中不再靜默返回空陣列。新增 `{ isReport: true }` 選項，失敗時拋出：
+  - `CLOSING_ARTIFACT_MISSING`（fileId 為空）
+  - `CLOSING_ARTIFACT_UNREADABLE`（檔案讀取失敗）
+  - `CLOSING_ARTIFACT_INVALID_CSV`（內容為空或格式不合規）
+- 金額彙總優先讀取 `settlement_total_minor`，無此欄位才 fallback 至 `final_amount_minor`
+- `getApplicableTemplate` 新增日期起訖過濾、多筆時以版本最高或生效日最新排序
+- 舊 `report_manifest.json` 改用 `setTrashed(true)` 清理（取代已棄用的 `removeFile`）
 
-### 3.8 HTML / Docs / Sheets Renderer 實作狀態
-`ReportService.gs` 中實現了 `renderReportByFormat` 分流渲染：
-- **HTML Renderer**：採用 UTF-8 輸出並對所有動態資料呼叫 `escapeHtml` 以防注入。Temp HTML 檔案在轉換後會呼叫 `setTrashed(true)` 進行清理。
-- **Docs/Sheets Renderer**：確認 `template_file_id` 合法性，否則拋出 `TEMPLATE_FILE_NOT_FOUND`。複製範本後，替換 placeholders、寫入儲存格並匯出 PDF，最後以 `setTrashed(true)` 清理。
-- 預覽模式下使用臨時 fall-back draft 範本，絕不自動建立並 approved 範本。
+### 3.8 報表角色權限 (Item 八)
+在後端 Service 層新增 `AuthService.requireRole` 檢查：
+| 函式 | 允許角色 |
+|------|---------|
+| `generatePreviewReport` | system_admin, lunch_admin, lunch_secretary |
+| `generateOfficialReport` | system_admin, lunch_admin |
+| `approveReport` | system_admin, lunch_admin |
+| `rejectReport` | system_admin, lunch_admin |
+| `listApprovalRecords` | system_admin, lunch_admin, lunch_secretary |
 
-### 3.9 報表金額平衡驗證
-在 `buildReportDataModel` 階段累加 5 種來源（`township`, `county`, `school`, `self_pay`, `other`），驗證是否等於 `gross_amount`。若不平衡，拋出 `REPORT_FUNDING_TOTAL_NOT_BALANCED`，強制阻斷正式報表產出。
+viewer 與 class_teacher 已被封禁於所有報表修改與核准操作。
 
-### 3.10 deploy.sh 安全修正
-- 無法解析版本時立即停止，回報 `VERSION_CREATION_FAILED`。
-- 更新既有部署更新失敗時，回報 `DEPLOYMENT_UPDATE_FAILED` 並停止，保留原 ID。
-- `clasp deployments` 會根據 `DEPLOY_ID` 進行 Web App URL 匹配，防範誤用。
-- 寫入 `uat.json` 或 `production.json` 時，先寫入暫存檔再 `mv` 覆蓋。
+### 3.9 TestRunner 修正 (Item 九)
+- T16：移除 `{ expected: 'approved', actual: 'approved' }` 的寫死 fallback
+- 當無現有 draft 範本時，自動建立測試用範本並走完核准流程驗證
 
-### 3.11 README 與 SECURITY.md 修正
-- **README.md**：更新了 GitHub 專案連結、DOMAIN Scoping 說明，移除了舊式手動說明，進度更新為 Phase 6.5 Pre-UAT 修正中，專案狀態改為 Alpha / Pre-UAT。
-- **SECURITY.md**：通報政策改為 GitHub Private Vulnerability Reporting，防範 placeholder 內容。
+### 3.10 deploy.sh 修正 (Item 十)
+- `CREATE_IF_MISSING` 控制專案建立（預設 false，無 Script ID 且無此旗標時阻斷）
+- `FORCE_PUSH` 控制 `--force` 參數（預設 false，僅帶 `--force` 旗標才強制推送）
+- 所有 clasp 指令增加 exit code 判定 (`$PUSH_EXIT`, `$VERSION_EXIT`)
+- 新增 `DEPLOYMENT_ID_NOT_FOUND` 驗證（DEPLOY_ID 非空且格式正確 `^[A-Za-z0-9_-]+$`）
+- Web App URL 驗證匹配 `https://script.google.com/macros/s/{DEPLOY_ID}/exec`
 
-### 3.12 靜態檢查與 dry-run 驗收結果
-* `npm run check:static`：**PASSED**（包含 8 項指標檢查，確保程式碼結構完整）
+### 3.11 靜態檢查擴充 (Item 十一)
+`tools/static-check.mjs` 現包含 16 項檢查（8 + 4 + 4）：
+- 原有 8 項：Code.gs API 重複、banned patterns（8 規則）、placeholder 測試、SetupService exports、ReportTemplates status、SubsidyRules decimals、README、package.json lifecycle
+- 新增 4 項：BootstrapService draft setValue、ReportService 角色權限、SubsidyRuleService migration export、deploy.sh DEPLOY_ID
+
+---
+
+## 4. 驗收結果
+* `node tools/static-check.mjs`：**PASSED**（16 項檢查全數通過）
 * `bash -n deploy.sh`：**PASSED**
 * `npm run deploy:dry-run`：**PASSED**
+* `grep -RInE '\}\)\.error' src/backend`：**0 matches**
 * **Pull Request URL**: https://github.com/mihozip/gas-school-lunch-management-system/pull/1
-* **PRE_UAT_FIX_STATUS**: `PASSED`
-* **說明**：上述阻斷性問題已全數修復完畢，且靜態完整性檢查與部署 dry-run 均順利通過！
+* **PRE_UAT_FIX_STATUS**: `PARTIAL`
+* **說明**：第二輪 Code Review 阻斷問題（12 項中的 11 項）已修正完畢。靜態完整性檢查與部署 dry-run 均通過。尚需實機 TestRunner 通過後方可改為 PASSED。

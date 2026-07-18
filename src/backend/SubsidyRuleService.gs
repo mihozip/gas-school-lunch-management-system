@@ -9,111 +9,30 @@ var SubsidyRuleService = (function() {
    * 驗證費率 Basis Points 是否合規 (0 至 10000 之間整數)
    */
   function validateRateBasisPoints(rateBps) {
-    var val = parseInt(rateBps, 10);
-    if (isNaN(val) || val < 0 || val > 10000) {
+    var value = Number(rateBps);
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0 || value > 10000) {
       var err = new Error('🛑 財務錯誤：費率 BPS 必須介於 0 至 10000 之間的整數。實際值: ' + rateBps);
       err.code = 'FUNDING_RATE_INVALID';
       throw err;
     }
   }
 
-  /**
-   * 將既有的 SubsidyRules 儲存之費率一次性遷移為 Basis Points
-   */
-  function migrateSubsidyRatesToBasisPoints() {
-    AuthService.requireRole('system_admin');
-    var identity = AuthService.getCurrentIdentity();
-    var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockServiceHelper.runWithLock(function() {
-      var ssId = Config.getSpreadsheetId();
-      var sheet = SpreadsheetApp.openById(ssId).getSheetByName('SubsidyRules');
-      if (!sheet) return { success: false, message: '無 SubsidyRules 工作表' };
 
-      var range = sheet.getDataRange();
-      var values = range.getValues();
-      var headers = values[0];
-      
-      // 找出 subsidy_rate 與 calculation_type 等欄位 index
-      var rateIdx = headers.indexOf('subsidy_rate');
-      var typeIdx = headers.indexOf('calculation_type');
-      
-      if (rateIdx === -1) throw new Error('缺少 subsidy_rate 欄位');
-
-      var updatedCount = 0;
-      var beforeSnapshot = [];
-      var afterSnapshot = [];
-
-      for (var i = 1; i < values.length; i++) {
-        var row = values[i];
-        var calcType = typeIdx !== -1 ? row[typeIdx] : 'percentage';
-        
-        if (calcType === 'percentage') {
-          var rawRate = String(row[rateIdx]);
-          var cleanRate = rawRate.replace(/%/g, '').trim();
-          var numRate = parseFloat(cleanRate);
-          
-          if (!isNaN(numRate)) {
-            var bps = 0;
-            // 判斷原儲存格式
-            if (rawRate.indexOf('%') !== -1) {
-              // 50% 格式
-              bps = Math.round(numRate * 100);
-            } else if (numRate > 1.0) {
-              // 50 格式
-              bps = Math.round(numRate * 100);
-            } else {
-              // 0.5 或 1.0 格式
-              bps = Math.round(numRate * 10000);
-            }
-
-            // 防呆限縮
-            if (bps < 0) bps = 0;
-            if (bps > 10000) bps = 10000;
-
-            if (row[rateIdx] !== bps) {
-              beforeSnapshot.push({ rowIndex: i + 1, rate: row[rateIdx] });
-              
-              // 寫入儲存格
-              sheet.getRange(i + 1, rateIdx + 1).setValue(bps);
-              
-              afterSnapshot.push({ rowIndex: i + 1, rate: bps });
-              updatedCount++;
-            }
-          }
-        }
-      }
-
-      // 新增 migration 設定旗標
-      var configSheet = SpreadsheetApp.openById(ssId).getSheetByName('SystemConfig');
-      configSheet.appendRow(['RATE_STORAGE_FORMAT', 'BASIS_POINTS', '費率保存格式', currentDateTime, identity.email]);
-
-      AuditService.log({
-        action: 'MIGRATE_SUBSIDY_RATES',
-        module: 'rules',
-        beforeData: beforeSnapshot,
-        afterData: afterSnapshot,
-        reason: '將補助費率格式全面遷移為 Basis Points (基數 10000)，共轉換 ' + updatedCount + ' 筆規則。'
-      });
-
-      Config.clearAllCache();
-      return { success: true, migratedCount: updatedCount };
-    }).error;
-  }
-
-  /**
-   * 建立補助規則
-   */
   function createSubsidyRule(ruleData) {
     AuthService.requireRole('system_admin');
     PeriodLockService.assertRuleWritable(ruleData.effective_start_date, ruleData.effective_end_date);
+    
+    if (ruleData.calculation_type === 'percentage') {
+      validateRateBasisPoints(ruleData.subsidy_rate);
+    }
     
     var ruleId = ruleData.rule_id || 'RULE_' + new Date().getTime();
     var record = {
       rule_id: ruleId,
       subsidy_category_id: ruleData.subsidy_category_id,
       funding_source: ruleData.funding_source,
-      subsidy_rate: parseInt(ruleData.subsidy_rate, 10) || 0,
+      subsidy_rate: Number(ruleData.subsidy_rate) || 0,
       subsidy_amount: parseFloat(ruleData.subsidy_amount) || 0,
       calculation_type: ruleData.calculation_type,
       effective_start_date: ruleData.effective_start_date,
@@ -121,10 +40,6 @@ var SubsidyRuleService = (function() {
       enabled: ruleData.enabled !== false,
       note: ruleData.note || ''
     };
-    
-    if (record.calculation_type === 'percentage') {
-      validateRateBasisPoints(record.subsidy_rate);
-    }
     
     SheetRepository.appendRecord('SubsidyRules', record);
     return record;
@@ -142,19 +57,19 @@ var SubsidyRuleService = (function() {
     PeriodLockService.assertRuleWritable(old.effective_start_date, old.effective_end_date);
     PeriodLockService.assertRuleWritable(ruleData.effective_start_date, ruleData.effective_end_date);
 
+    if (ruleData.calculation_type === 'percentage') {
+      validateRateBasisPoints(ruleData.subsidy_rate);
+    }
+
     old.subsidy_category_id = ruleData.subsidy_category_id;
     old.funding_source = ruleData.funding_source;
-    old.subsidy_rate = parseInt(ruleData.subsidy_rate, 10) || 0;
+    old.subsidy_rate = Number(ruleData.subsidy_rate) || 0;
     old.subsidy_amount = parseFloat(ruleData.subsidy_amount) || 0;
     old.calculation_type = ruleData.calculation_type;
     old.effective_start_date = ruleData.effective_start_date;
     old.effective_end_date = ruleData.effective_end_date;
     old.enabled = ruleData.enabled !== false;
     old.note = ruleData.note || '';
-
-    if (old.calculation_type === 'percentage') {
-      validateRateBasisPoints(old.subsidy_rate);
-    }
 
     SheetRepository.upsertRecord('SubsidyRules', 'rule_id', ruleId, old);
     return old;
@@ -378,7 +293,6 @@ var SubsidyRuleService = (function() {
 
   return {
     validateRateBasisPoints: validateRateBasisPoints,
-    migrateSubsidyRatesToBasisPoints: migrateSubsidyRatesToBasisPoints,
     createSubsidyRule: createSubsidyRule,
     updateSubsidyRule: updateSubsidyRule,
     deleteSubsidyRule: deleteSubsidyRule,

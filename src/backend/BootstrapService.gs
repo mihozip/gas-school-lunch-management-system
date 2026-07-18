@@ -172,13 +172,16 @@ var BootstrapService = (function() {
         case 'CREATE_DATABASE_SCHEMAS':
           var dbId = props.getProperty('DATABASE_SPREADSHEET_ID');
           var dbSs = SpreadsheetApp.openById(dbId);
+          settings.environment = env;
           SetupService.initializeDatabaseForSs(dbSs, settings);
           
           if (env !== 'PRODUCTION') {
             var testId = props.getProperty('TEST_SPREADSHEET_ID');
             if (testId) {
               var testSs = SpreadsheetApp.openById(testId);
-              SetupService.initializeDatabaseForSs(testSs, settings);
+              var testSettings = JSON.parse(JSON.stringify(settings));
+              testSettings.environment = 'TEST';
+              SetupService.initializeDatabaseForSs(testSs, testSettings);
             }
           }
           props.setProperty('BOOTSTRAP_CURRENT_STEP', 'CREATE_SYSTEM_CONFIG');
@@ -293,9 +296,22 @@ var BootstrapService = (function() {
           var ss = SpreadsheetApp.openById(dbId);
           var tplSheet = ss.getSheetByName('ReportTemplates');
           if (tplSheet) {
-            var lastRow = tplSheet.getLastRow();
-            if (lastRow > 1) {
-              tplSheet.getRange(2, 13, lastRow - 1, 1).setValue('draft');
+            var rows = tplSheet.getDataRange().getValues();
+            var existingTplIds = rows.slice(1).map(function(r) { return r[0]; });
+            var defaultTpls = [
+              ['TMP_TOWNSHIP_V1', 'TOWNSHIP_FUNDING_APPLICATION', '通用版公所補助申請表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'draft', email, Utils.formatDateTime(new Date()), '', '', '', '預設公所範本', 'INTERNAL_STUDENT_DETAIL'],
+              ['TMP_COUNTY_V1', 'COUNTY_FUNDING_APPLICATION', '通用版縣府補助申請表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'draft', email, Utils.formatDateTime(new Date()), '', '', '', '預設縣府範本', 'INTERNAL_STUDENT_DETAIL'],
+              ['TMP_MEAL_SUM_V1', 'MONTHLY_MEAL_SUMMARY', '通用版每月餐數統計表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'draft', email, Utils.formatDateTime(new Date()), '', '', '', '預設月餐統計範本', 'PUBLIC_SUMMARY']
+            ];
+            
+            var newTpls = [];
+            defaultTpls.forEach(function(tpl) {
+              if (existingTplIds.indexOf(tpl[0]) === -1) {
+                newTpls.push(tpl);
+              }
+            });
+            if (newTpls.length > 0) {
+              tplSheet.getRange(tplSheet.getLastRow() + 1, 1, newTpls.length, 20).setValues(newTpls);
             }
           }
           props.setProperty('BOOTSTRAP_CURRENT_STEP', 'RUN_HEALTH_CHECK');

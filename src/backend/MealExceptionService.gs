@@ -268,7 +268,7 @@ var MealExceptionService = (function() {
       SheetRepository.appendRecord('DailyConfirmationHistory', chRecord);
 
       return newConf;
-    }).error;
+    });
   }
 
   /**
@@ -372,7 +372,7 @@ var MealExceptionService = (function() {
       });
 
       return newConf;
-    }).error;
+    });
   }
 
   /**
@@ -434,7 +434,7 @@ var MealExceptionService = (function() {
       });
 
       return updated;
-    }).error;
+    });
   }
 
   /**

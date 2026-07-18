@@ -95,7 +95,7 @@ var MonthlyReconciliationService = (function() {
         summaries: finalSummaries
       };
 
-    }).error;
+    });
   }
 
   /**

@@ -128,7 +128,7 @@ var MealSuspensionService = (function() {
       });
 
       return updated;
-    }).error;
+    });
   }
 
   /**

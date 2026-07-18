@@ -35,7 +35,10 @@ function checkBannedPatterns() {
     { pattern: 'SetupService.bootstrapSystem', desc: '舊初始化 bootstrapSystem 應移除' },
     { pattern: 'apiBootstrapSystem', desc: '舊 API apiBootstrapSystem 應移除' },
     { pattern: '1AbC_doc_id_xyz', desc: '測試中不得出現假 Doc File ID placeholder' },
-    { pattern: '1AbC_sheet_id_xyz', desc: '測試中不得出現假 Sheet File ID placeholder' }
+    { pattern: '1AbC_sheet_id_xyz', desc: '測試中不得出現假 Sheet File ID placeholder' },
+    { pattern: '}).error', desc: '不得以 }).error 讀取鎖定回傳值，LockServiceHelper 已直回傳 fn 的執行結果' },
+    { pattern: 'ss.saveAndClose()', desc: 'Spreadsheet 無 saveAndClose 方法，應使用 SpreadsheetApp.flush()' },
+    { pattern: "expected: 'approved', actual: 'approved'", desc: 'TestRunner 中禁止使用寫死的 approved 驗證案例' }
   ];
   
   const searchInDir = (dir) => {
@@ -141,6 +144,59 @@ function checkPackageJsonLifecycleScript() {
   }
 }
 
+function checkBootstrapDraftSet() {
+  const bootstrapPath = 'src/backend/BootstrapService.gs';
+  if (!fs.existsSync(bootstrapPath)) return;
+  const content = fs.readFileSync(bootstrapPath, 'utf8');
+  if (content.includes("setValue('draft')")) {
+    logError("BootstrapService.gs 中禁止使用 tplSheet.getRange(...).setValue('draft') 批次改寫所有範本狀態。");
+  } else {
+    console.log('✓ BootstrapService draft setValue check passed.');
+  }
+}
+
+function checkReportServiceRoles() {
+  const reportPath = 'src/backend/ReportService.gs';
+  if (!fs.existsSync(reportPath)) return;
+  const content = fs.readFileSync(reportPath, 'utf8');
+  const required = ['generatePreviewReport', 'generateOfficialReport', 'approveReport', 'rejectReport'];
+  required.forEach(func => {
+    const regex = new RegExp('function\\s+' + func + '\\s*\\([\\s\\S]*?\\)\\s*\\{[^}]*\\}');
+    const matches = content.match(regex);
+    // 使用簡單包含檢查，防止大括號嵌套匹配不全，我們直接搜尋 require 呼叫是否存在於該檔案中，且在函數定義區間中
+    if (content.includes('function ' + func)) {
+      const idx = content.indexOf('function ' + func);
+      const sub = content.substring(idx, idx + 800);
+      if (!sub.includes('AuthService.require')) {
+        logError(`ReportService.gs 中的函式 ${func} 缺少 AuthService 權限或角色驗證！`);
+      }
+    }
+  });
+  console.log('✓ ReportService functions roles validation check passed.');
+}
+
+function checkSubsidyRateMigrationExport() {
+  const subsidyPath = 'src/backend/SubsidyRuleService.gs';
+  if (!fs.existsSync(subsidyPath)) return;
+  const content = fs.readFileSync(subsidyPath, 'utf8');
+  if (content.includes('migrateSubsidyRatesToBasisPoints:')) {
+    logError('SubsidyRuleService.gs 不得再匯出 migrateSubsidyRatesToBasisPoints 方法。');
+  } else {
+    console.log('✓ SubsidyRuleService migration export check passed.');
+  }
+}
+
+function checkDeployShValidation() {
+  const deployPath = 'deploy.sh';
+  if (!fs.existsSync(deployPath)) return;
+  const content = fs.readFileSync(deployPath, 'utf8');
+  if (!content.includes('DEPLOYMENT_ID_NOT_FOUND')) {
+    logError('deploy.sh 必須包含對 DEPLOY_ID 是否為空的校驗，且失敗時回報 DEPLOYMENT_ID_NOT_FOUND！');
+  } else {
+    console.log('✓ deploy.sh DEPLOY_ID check passed.');
+  }
+}
+
 checkCodeGsDuplicateApis();
 checkBannedPatterns();
 checkPlaceholderTests();
@@ -149,6 +205,10 @@ checkReportTemplatesApprovedStatus();
 checkSubsidyRulesDecimals();
 checkReadmeDeploymentDescription();
 checkPackageJsonLifecycleScript();
+checkBootstrapDraftSet();
+checkReportServiceRoles();
+checkSubsidyRateMigrationExport();
+checkDeployShValidation();
 
 if (errorsCount > 0) {
   console.error(`\n🛑 靜態完整性檢查失敗！共發現 ${errorsCount} 個錯誤。`);

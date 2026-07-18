@@ -348,11 +348,19 @@ var TestRunner = (function() {
 
     runTest('T16', '核准範本與版本規格更新', ['ReportTemplates'], 'INTEGRATION', false, false, false, false, false, function() {
       var list = SheetRepository.findRecords('ReportTemplates', function(x) { return x.status === 'draft'; });
+      var target;
       if (list.length > 0) {
-        var t = ReportService.approveReportTemplate(list[0].template_id);
-        return { expected: 'approved', actual: t.status };
+        target = list[0];
+      } else {
+        // 無現有 draft 範本，自行建立一份以進行測試
+        target = ReportService.createReportTemplate({
+          report_type: 'TEST_APPROVAL_FLOW',
+          template_name: '核准流程測試範本',
+          template_format: 'HTML'
+        });
       }
-      return { expected: 'approved', actual: 'approved' };
+      var approved = ReportService.approveReportTemplate(target.template_id);
+      return { expected: 'approved', actual: approved.status };
     });
 
     runTest('T17', '未核准 (draft) 範本禁止用於產生正式報表', [], 'AUTH', false, false, false, false, false, function() {

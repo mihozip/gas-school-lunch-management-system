@@ -19,14 +19,24 @@ var ReportService = (function() {
    * 取得有效且核准的報表範本
    */
   function getApplicableTemplate(reportType, dateStr) {
-    var ym = dateStr.substring(0, 7);
     var templates = SheetRepository.findRecords('ReportTemplates', function(x) {
-      return x.report_type === reportType && 
-             x.status === 'approved' && 
-             x.enabled === true;
+      if (x.report_type !== reportType) return false;
+      if (x.status !== 'approved') return false;
+      if (x.enabled !== true) return false;
+      // 檢查日期起訖是否涵蓋指定日期
+      if (x.effective_start_date && dateStr < x.effective_start_date) return false;
+      if (x.effective_end_date && dateStr > x.effective_end_date) return false;
+      return true;
     });
 
     if (templates.length === 0) return null;
+    // 若有多筆，選擇版本最高或生效日最新者
+    templates.sort(function(a, b) {
+      var vA = parseInt(a.template_version, 10) || 0;
+      var vB = parseInt(b.template_version, 10) || 0;
+      if (vB !== vA) return vB - vA;
+      return (b.effective_start_date || '').localeCompare(a.effective_start_date || '');
+    });
     return templates[0];
   }
 
@@ -140,7 +150,7 @@ var ReportService = (function() {
 
     fSums.forEach(function(fs) {
       var source = fs.funding_source;
-      var amt = parseInt(fs.final_amount_minor || fs.settlement_total_minor || 0, 10);
+      var amt = parseInt(fs.settlement_total_minor || fs.final_amount_minor || 0, 10);
       var resid = parseInt(fs.residual_adjustment_minor || 0, 10);
       
       residualMinor += resid;
@@ -236,13 +246,33 @@ var ReportService = (function() {
     return labels[src] || src;
   }
 
-  function loadCsvFromDrive(fileId) {
-    if (!fileId) return [];
+  function loadCsvFromDrive(fileId, options) {
+    var isReport = options && options.isReport;
+    if (!fileId) {
+      if (isReport) {
+        var err = new Error('封存快照檔案 ID 為空，無法載入');
+        err.code = 'CLOSING_ARTIFACT_MISSING';
+        throw err;
+      }
+      return [];
+    }
     try {
       var file = DriveApp.getFileById(fileId);
       var csvText = file.getBlob().getDataAsString('UTF-8');
-      return parseCsvText(csvText);
+      var result = parseCsvText(csvText);
+      if (isReport && result.length === 0) {
+        var err2 = new Error('封存快照 CSV 檔案內容為空或格式不合規：' + fileId);
+        err2.code = 'CLOSING_ARTIFACT_INVALID_CSV';
+        throw err2;
+      }
+      return result;
     } catch(e) {
+      if (e.code) throw e;
+      if (isReport) {
+        var err3 = new Error('無法讀取封存快照檔案：' + fileId + '，原始錯誤：' + e.message);
+        err3.code = 'CLOSING_ARTIFACT_UNREADABLE';
+        throw err3;
+      }
       return [];
     }
   }
@@ -326,28 +356,46 @@ var ReportService = (function() {
       throw err;
     }
 
-    var templateFile = DriveApp.getFileById(docId);
+    var templateFile;
+    try {
+      templateFile = DriveApp.getFileById(docId);
+    } catch (e) {
+      var err2 = new Error('找不到 Docs 範本檔案或無權限：' + docId + '，原始錯誤：' + e.message);
+      err2.code = 'TEMPLATE_FILE_NOT_FOUND';
+      throw err2;
+    }
+
     var copyFile = templateFile.makeCopy('temp_render_doc_' + new Date().getTime(), outputFolder);
     
-    var doc = DocumentApp.openById(copyFile.getId());
+    var doc;
+    try {
+      doc = DocumentApp.openById(copyFile.getId());
+    } catch (e) {
+      copyFile.setTrashed(true);
+      var err3 = new Error('無法開啟 Docs 範本副本：' + e.message);
+      err3.code = 'TEMPLATE_FILE_NOT_FOUND';
+      throw err3;
+    }
     var body = doc.getBody();
     
-    body.replaceText('{{SCHOOL_NAME}}', escapeHtml(dataModel.SCHOOL_NAME));
-    body.replaceText('{{YEAR_MONTH}}', escapeHtml(dataModel.YEAR_MONTH));
-    body.replaceText('{{TOTAL_MEAL_COUNT}}', String(dataModel.TOTAL_MEAL_COUNT));
-    body.replaceText('{{GROSS_AMOUNT}}', String(dataModel.GROSS_AMOUNT));
-    body.replaceText('{{TOWNSHIP_AMOUNT}}', String(dataModel.TOWNSHIP_AMOUNT));
-    body.replaceText('{{COUNTY_AMOUNT}}', String(dataModel.COUNTY_AMOUNT));
-    body.replaceText('{{SCHOOL_AMOUNT}}', String(dataModel.SCHOOL_AMOUNT));
-    body.replaceText('{{SELF_PAY_AMOUNT}}', String(dataModel.SELF_PAY_AMOUNT));
+    // Docs body.replaceText 第一參數是 regex，故 placeholder 必須進行 regex escape
+    // Docs 是純文字，不做 escapeHtml
+    body.replaceText('\\{\\{SCHOOL_NAME\\}\\}', String(dataModel.SCHOOL_NAME));
+    body.replaceText('\\{\\{YEAR_MONTH\\}\\}', String(dataModel.YEAR_MONTH));
+    body.replaceText('\\{\\{TOTAL_MEAL_COUNT\\}\\}', String(dataModel.TOTAL_MEAL_COUNT));
+    body.replaceText('\\{\\{GROSS_AMOUNT\\}\\}', String(dataModel.GROSS_AMOUNT));
+    body.replaceText('\\{\\{TOWNSHIP_AMOUNT\\}\\}', String(dataModel.TOWNSHIP_AMOUNT));
+    body.replaceText('\\{\\{COUNTY_AMOUNT\\}\\}', String(dataModel.COUNTY_AMOUNT));
+    body.replaceText('\\{\\{SCHOOL_AMOUNT\\}\\}', String(dataModel.SCHOOL_AMOUNT));
+    body.replaceText('\\{\\{SELF_PAY_AMOUNT\\}\\}', String(dataModel.SELF_PAY_AMOUNT));
 
-    // 插入明細表格
+    // 插入明細表格（純文字，不用 escapeHtml）
     var tableData = [['日期', '班級', '學生姓名', '餐數', '單價']];
     dataModel.DAILY_ROWS.forEach(function(r) {
       tableData.push([
-        escapeHtml(r.date),
-        escapeHtml(r.class_code),
-        escapeHtml(r.student_name),
+        String(r.date),
+        String(r.class_code),
+        String(r.student_name),
         String(r.meal_count),
         '$' + r.meal_price.toFixed(2)
       ]);
@@ -383,18 +431,42 @@ var ReportService = (function() {
       throw err;
     }
 
-    var templateFile = DriveApp.getFileById(sheetId);
+    var templateFile;
+    try {
+      templateFile = DriveApp.getFileById(sheetId);
+    } catch (e) {
+      var err2 = new Error('找不到 Sheets 範本檔案或無權限：' + sheetId + '，原始錯誤：' + e.message);
+      err2.code = 'TEMPLATE_FILE_NOT_FOUND';
+      throw err2;
+    }
+
     var copyFile = templateFile.makeCopy('temp_render_sheet_' + new Date().getTime(), outputFolder);
     
-    var ss = SpreadsheetApp.openById(copyFile.getId());
+    var ss;
+    try {
+      ss = SpreadsheetApp.openById(copyFile.getId());
+    } catch (e) {
+      copyFile.setTrashed(true);
+      var err3 = new Error('無法開啟 Sheets 範本副本：' + e.message);
+      err3.code = 'TEMPLATE_FILE_NOT_FOUND';
+      throw err3;
+    }
     var sh = ss.getSheets()[0];
+    if (!sh) {
+      copyFile.setTrashed(true);
+      throw new Error('Sheets 範本中找不到任何工作表');
+    }
     
     sh.getRange('A1').setValue(dataModel.SCHOOL_NAME);
     sh.getRange('B2').setValue(dataModel.YEAR_MONTH);
     sh.getRange('B3').setValue(dataModel.TOTAL_MEAL_COUNT);
     sh.getRange('B4').setValue(dataModel.GROSS_AMOUNT);
 
-    ss.saveAndClose();
+    if (isPreview) {
+      sh.getRange('A6').setValue('⚠️ 預覽文件 — 非正式申請資料');
+    }
+
+    SpreadsheetApp.flush();
 
     var blob = copyFile.getAs('application/pdf');
     var fileName = Config.get('SCHOOL_CODE') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
@@ -471,6 +543,7 @@ var ReportService = (function() {
    * 產生預覽報表 (Preview)
    */
   function generatePreviewReport(closingId, reportType, templateId) {
+    AuthService.requireRole('system_admin', 'lunch_admin', 'lunch_secretary');
     var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
     if (!closing) throw new Error('找不到月結項目');
 
@@ -512,6 +585,7 @@ var ReportService = (function() {
    * 正式產生報表并存檔關聯 (Official)
    */
   function generateOfficialReport(closingId, reportType, templateId) {
+    AuthService.requireRole('system_admin', 'lunch_admin');
     var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
     if (!closing) throw new Error('找不到月結項目');
     if (closing.status !== 'closed') {
@@ -685,7 +759,7 @@ var ReportService = (function() {
     // 刪除舊的 report_manifest.json
     var oldFiles = repFolder.getFilesByName('report_manifest.json');
     while(oldFiles.hasNext()) {
-      repFolder.removeFile(oldFiles.next());
+      oldFiles.next().setTrashed(true);
     }
 
     var file = repFolder.createFile('report_manifest.json', manifestJson, MimeType.PLAIN_TEXT);
@@ -701,12 +775,14 @@ var ReportService = (function() {
   }
 
   function listApprovalRecords(reportRunId) {
+    AuthService.requireRole('system_admin', 'lunch_admin', 'lunch_secretary');
     return SheetRepository.findRecords('ApprovalRecords', function(x) {
       return x.report_run_id === reportRunId;
     });
   }
 
   function approveReport(reportRunId, stage, comment) {
+    AuthService.requireRole('system_admin', 'lunch_admin');
     var identity = AuthService.getCurrentIdentity();
     var run = SheetRepository.findById('ReportGenerationRuns', 'report_run_id', reportRunId);
     if (!run) throw new Error('找不到報表批次');
@@ -732,6 +808,7 @@ var ReportService = (function() {
   }
 
   function rejectReport(reportRunId, stage, comment) {
+    AuthService.requireRole('system_admin', 'lunch_admin');
     var identity = AuthService.getCurrentIdentity();
     var run = SheetRepository.findById('ReportGenerationRuns', 'report_run_id', reportRunId);
     if (!run) throw new Error('找不到報表批次');

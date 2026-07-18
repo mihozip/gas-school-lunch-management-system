@@ -150,7 +150,7 @@ var FundingCalculationService = (function() {
         warningsCount: issues.length
       };
 
-    }).error;
+    });
   }
 
   /**

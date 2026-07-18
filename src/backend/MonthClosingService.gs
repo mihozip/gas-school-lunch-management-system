@@ -79,7 +79,7 @@ var MonthClosingService = (function() {
       });
 
       return record;
-    }).error;
+    });
   }
 
   /**
@@ -253,7 +253,7 @@ var MonthClosingService = (function() {
       });
 
       return closing;
-    }).error;
+    });
   }
 
   /**
@@ -350,7 +350,7 @@ var MonthClosingService = (function() {
         closingId: closing.closing_id,
         archiveFolderId: archiveFolderId
       };
-    }).error;
+    });
   }
 
   /**
@@ -416,7 +416,7 @@ var MonthClosingService = (function() {
       });
 
       return closing;
-    }).error;
+    });
   }
 
   function getLatestClosingId(yearMonth) {

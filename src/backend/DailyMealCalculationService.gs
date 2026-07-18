@@ -179,7 +179,7 @@ var DailyMealCalculationService = (function() {
         throw runErr;
       }
 
-    }).error;
+    });
   }
 
   /**
@@ -663,7 +663,7 @@ var DailyMealCalculationService = (function() {
       });
 
       return record;
-    }).error;
+    });
   }
 
   /**

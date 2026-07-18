@@ -122,6 +122,11 @@ fi
 
 # 若仍無 Script ID，自動建立新的專案
 if [ -z "$SCRIPT_ID" ]; then
+  if [ "$CREATE_IF_MISSING" = false ]; then
+    echo "🛑 錯誤 [SCRIPT_ID_NOT_FOUND]：找不到 Script ID，且未傳入 --create-if-missing 參數。"
+    echo "👉 請以 --script-id <ID> 指定，或加上 --create-if-missing 允許自動建立。"
+    exit 1
+  fi
   echo "⚙️ 正在自動建立新的 Google Apps Script 專案..."
   DATE_STR=$(date +%Y%m%d_%H%M%S)
   TITLE="學校午餐管理系統-${ENV_UPPER}-${DATE_STR}"
@@ -176,10 +181,16 @@ cat <<EOF > .claspignore
 !src/frontend/**/*.html
 EOF
 
-# 7. 強制執行 clasp push --force
+# 7. 執行 clasp push
 echo "📤 正在上傳原始碼至 Google Apps Script (clasp push)..."
-PUSH_OUT=$(npx clasp push --force 2>&1 || true)
-if [[ "$PUSH_OUT" == *"Error"* || "$PUSH_OUT" == *"failed"* ]]; then
+if [ "$FORCE_PUSH" = true ]; then
+  PUSH_OUT=$(npx clasp push --force 2>&1)
+  PUSH_EXIT=$?
+else
+  PUSH_OUT=$(npx clasp push 2>&1)
+  PUSH_EXIT=$?
+fi
+if [ $PUSH_EXIT -ne 0 ] || [[ "$PUSH_OUT" == *"Error"* || "$PUSH_OUT" == *"failed"* ]]; then
   echo "🛑 錯誤 [PUSH_FAILED]：原始碼上傳失敗！"
   echo "👉 新建立的 Script ID: ${SCRIPT_ID}"
   echo "👉 Apps Script 編輯器網址: https://script.google.com/d/${SCRIPT_ID}/edit"
@@ -189,10 +200,11 @@ fi
 
 # 8. 建立線上新版本 (clasp version)
 echo "🏷️ 正在建立線上新版本 (clasp version)..."
-VERSION_OUT=$(npx clasp version "Auto-deployed by deploy.sh at $(date)" 2>&1 || true)
+VERSION_OUT=$(npx clasp version "Auto-deployed by deploy.sh at $(date)" 2>&1)
+VERSION_EXIT=$?
 VERSION_NUM=$(node -e "const out = process.argv[1]; const m = out.match(/Created version\s+(\d+)/i) || out.match(/Version\s+(\d+)/i); console.log(m ? m[1] : '');" "${VERSION_OUT}")
 
-if [ -z "$VERSION_NUM" ]; then
+if [ $VERSION_EXIT -ne 0 ] || [ -z "$VERSION_NUM" ]; then
   echo "🛑 錯誤 [VERSION_CREATION_FAILED]：建立線上版本編號失敗。"
   echo "VERSION_OUT 原始輸出："
   echo "${VERSION_OUT}"
@@ -260,6 +272,21 @@ if [ "$NO_DEPLOY" = false ]; then
 
   if [ -z "$WEB_APP_URL" ]; then
     WEB_APP_URL="https://script.google.com/macros/s/${DEPLOY_ID}/exec"
+  fi
+
+  # 驗證 DEPLOY_ID 非空且格式正確
+  if [ -z "$DEPLOY_ID" ]; then
+    echo "🛑 錯誤 [DEPLOYMENT_ID_NOT_FOUND]：部署 ID 為空，無法完成部署。"
+    exit 1
+  fi
+
+  if ! [[ "$DEPLOY_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "🛑 錯誤 [DEPLOYMENT_ID_INVALID_FORMAT]：部署 ID 格式不合規：${DEPLOY_ID}"
+    exit 1
+  fi
+
+  if ! [[ "$WEB_APP_URL" =~ ^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$ ]]; then
+    echo "⚠️ 警告 [WEB_APP_URL_MISMATCH]：Web App URL 格式異常：${WEB_APP_URL}"
   fi
 
   # 保存部署狀態 (原子操作：先寫入臨時檔案，再 mv 覆蓋)

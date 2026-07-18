@@ -444,7 +444,7 @@ var SetupService = (function() {
       'REOPEN_CONFIRM_ROLE': 'system_admin,lunch_admin',
       'SCHEMA_VERSION': CURRENT_SCHEMA_VERSION,
       'RATE_STORAGE_FORMAT': 'BASIS_POINTS',
-      'ENVIRONMENT': 'UAT'
+      'ENVIRONMENT': settings.environment || 'UAT'
     };
 
     var configSheet = ss.getSheetByName('SystemConfig');
@@ -514,9 +514,9 @@ var SetupService = (function() {
       var existingRuleIds = rows.slice(1).map(function(r) { return r[0]; });
       var newRules = [];
       var defaultRules = [
-        ['RULE_GEN_TOWN', 'GENERAL', 'township', '5000', '0.00', 'percentage', '2026-01-01', '2099-12-31', true, '公所分攤50%'],
-        ['RULE_GEN_COUNTY', 'GENERAL', 'county', '5000', '0.00', 'percentage', '2026-01-01', '2099-12-31', true, '縣府分攤50%'],
-        ['RULE_LOW_INC', 'LOW_INCOME', 'county', '10000', '0.00', 'percentage', '2026-01-01', '2099-12-31', true, '縣府全額補助低收']
+        ['RULE_GEN_TOWN', 'GENERAL', 'township', '5000', '0.00', 'percentage', '2026-01-01', '2099-12-31', false, '公所分攤50%'],
+        ['RULE_GEN_COUNTY', 'GENERAL', 'county', '5000', '0.00', 'percentage', '2026-01-01', '2099-12-31', false, '縣府分攤50%'],
+        ['RULE_LOW_INC', 'LOW_INCOME', 'county', '10000', '0.00', 'percentage', '2026-01-01', '2099-12-31', false, '縣府全額補助低收']
       ];
       defaultRules.forEach(function(rule) {
         if (existingRuleIds.indexOf(rule[0]) === -1) {
@@ -549,6 +549,7 @@ var SetupService = (function() {
       }
     }
 
+    Config.clearAllCache();
     return {
       createdSheets: createdSheets,
       skippedSheets: skippedSheets

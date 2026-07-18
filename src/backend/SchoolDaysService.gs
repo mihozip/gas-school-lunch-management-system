@@ -108,7 +108,7 @@ var SchoolDaysService = (function() {
 
       Config.clearAllCache();
       return afterData;
-    }).error;
+    });
   }
 
   /**
@@ -189,7 +189,7 @@ var SchoolDaysService = (function() {
       });
 
       return { created: createdCount, skipped: skippedCount };
-    }).error || { created: createdCount, skipped: skippedCount };
+    });
   }
 
   /**
@@ -239,7 +239,7 @@ var SchoolDaysService = (function() {
       });
 
       return updated;
-    }).error;
+    });
   }
 
   /**
@@ -333,7 +333,7 @@ var SchoolDaysService = (function() {
 
       Config.clearAllCache();
       return summary;
-    }).error || summary;
+    });
   }
 
   /**

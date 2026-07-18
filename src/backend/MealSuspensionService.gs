@@ -88,7 +88,7 @@ var MealSuspensionService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var record = SheetRepository.findById('MealSuspensionPeriods', 'suspension_id', suspensionId);
       if (!record) throw new Error('找不到該停餐紀錄。');
 

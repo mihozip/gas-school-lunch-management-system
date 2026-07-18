@@ -256,7 +256,7 @@ function loadRepCenterClosingInfo() {
 }
 
 function submitValidateClosing(closingId) {
-  callServer('apiValidateClosing', closingId).then(function() {
+  callServer('apiValidateClosingRecord', closingId).then(function() {
     showToast('已核可該月結草稿，進入 validated 狀態！', 'success');
     loadRepCenterClosingInfo();
   });
@@ -594,7 +594,7 @@ function previewRateMigration() {
               '<td>' + x.rule_id + '</td>' +
               '<td>' + x.raw_rate + '</td>' +
               '<td>' + x.legacy_format + '</td>' +
-              '<td>' + x.predicted_bps + ' BPS</td>' +
+              '<td>' + x.predicted_bps + ' BPS (' + (x.predicted_bps / 100) + '%)</td>' +
               '<td>' + status + '</td>' +
               '<td>' + (errText || '無') + '</td>' +
               '</tr>';

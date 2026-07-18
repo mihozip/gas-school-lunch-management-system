@@ -374,7 +374,7 @@ var ImportService = (function() {
     prepareImportBatch(batchRecord);
 
     // B. 使用 ScriptLock 執行寫入
-    var lockResult = LockService.runWithLock(function() {
+    var lockResult = LockServiceHelper.runWithLock(function() {
       try {
         // 確保所有匯入項目不影響已月結鎖定月份
         for (var i = 0; i < validatedRows.length; i++) {

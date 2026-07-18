@@ -25,7 +25,7 @@ var SubsidyRuleService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var ssId = Config.getSpreadsheetId();
       var sheet = SpreadsheetApp.openById(ssId).getSheetByName('SubsidyRules');
       if (!sheet) return { success: false, message: '無 SubsidyRules 工作表' };
@@ -122,6 +122,10 @@ var SubsidyRuleService = (function() {
       note: ruleData.note || ''
     };
     
+    if (record.calculation_type === 'percentage') {
+      validateRateBasisPoints(record.subsidy_rate);
+    }
+    
     SheetRepository.appendRecord('SubsidyRules', record);
     return record;
   }
@@ -147,6 +151,10 @@ var SubsidyRuleService = (function() {
     old.effective_end_date = ruleData.effective_end_date;
     old.enabled = ruleData.enabled !== false;
     old.note = ruleData.note || '';
+
+    if (old.calculation_type === 'percentage') {
+      validateRateBasisPoints(old.subsidy_rate);
+    }
 
     SheetRepository.upsertRecord('SubsidyRules', 'rule_id', ruleId, old);
     return old;
@@ -301,6 +309,9 @@ var SubsidyRuleService = (function() {
     var ssId = Config.getSpreadsheetId();
     var configSheet = SpreadsheetApp.openById(ssId).getSheetByName('SystemConfig');
     configSheet.appendRow(['RATE_STORAGE_FORMAT', 'BASIS_POINTS', '費率保存格式', metadata.executed_at, metadata.executed_by]);
+    configSheet.appendRow(['SUBSIDY_RATE_MIGRATED_AT', metadata.executed_at, '費率遷移時間', metadata.executed_at, metadata.executed_by]);
+    configSheet.appendRow(['SUBSIDY_RATE_MIGRATED_BY', metadata.executed_by, '費率遷移執行人', metadata.executed_at, metadata.executed_by]);
+    configSheet.appendRow(['SUBSIDY_RATE_MIGRATION_ID', migrationId, '費率遷移批次 ID', metadata.executed_at, metadata.executed_by]);
     
     AuditService.log({
       action: 'EXECUTE_SUBSIDY_RATE_MIGRATION',

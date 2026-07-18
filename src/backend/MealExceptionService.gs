@@ -184,7 +184,7 @@ var MealExceptionService = (function() {
     // 確保期間未鎖定
     PeriodLockService.assertDateWritable(dateStr);
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 檢查是否已鎖定
       var confirmation = SheetRepository.findRecords('DailyClassConfirmations', function(x) {
         return x.date === dateStr && x.class_id === classId;
@@ -281,7 +281,7 @@ var MealExceptionService = (function() {
     // 確保期間未鎖定
     PeriodLockService.assertDateWritable(dateStr);
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var confirmation = SheetRepository.findRecords('DailyClassConfirmations', function(x) {
         return x.date === dateStr && x.class_id === classId;
       })[0];
@@ -392,7 +392,7 @@ var MealExceptionService = (function() {
     // 確保期間未鎖定
     PeriodLockService.assertDateWritable(dateStr);
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var confirmation = SheetRepository.findRecords('DailyClassConfirmations', function(x) {
         return x.date === dateStr && x.class_id === classId;
       })[0];

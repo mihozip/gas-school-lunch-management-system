@@ -13,7 +13,7 @@ var MonthClosingService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 確保沒有正在進行的 active closed 月結
       var activeClosed = SheetRepository.findRecords('MonthClosings', function(x) {
         return x.year_month === yearMonth && x.status === 'closed' && x.is_current === true;
@@ -222,7 +222,7 @@ var MonthClosingService = (function() {
       throw new Error('🛑 職務分離限制：會計/主計人員目前尚未經由設定授權執行驗證就緒。');
     }
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
       if (!closing) throw new Error('找不到該月結項目');
       if (closing.status !== 'draft') throw new Error('該月結項目不是草稿狀態，無法審定。');
@@ -283,7 +283,7 @@ var MonthClosingService = (function() {
       throw new Error('請輸入「確認月結鎖定」以完成安全複核。');
     }
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
       if (!closing) throw new Error('找不到該月結項目');
       if (closing.status !== 'validated' && closing.status !== 'draft') {
@@ -365,7 +365,7 @@ var MonthClosingService = (function() {
       throw new Error('🛑 解鎖錯誤：必須填寫解鎖原因事由！');
     }
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
       if (!closing) throw new Error('找不到該月結項目');
       if (closing.status !== 'closed') throw new Error('該月結項目狀態不為 closed，無法解除。');

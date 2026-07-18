@@ -22,7 +22,7 @@ var DailyMealCalculationService = (function() {
     var type = runType || 'date_range';
 
     // 取得 ScriptLock，防範並行運算衝突
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 1. 驗證日曆日期唯一性 (防範重複日期 blocking 錯誤)
       var dupSchoolDays = SchoolDaysService.findDuplicateSchoolDays();
       if (dupSchoolDays.length > 0) {
@@ -641,7 +641,7 @@ var DailyMealCalculationService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var record = SheetRepository.findById('CalculationIssues', 'issue_id', issueId);
       if (!record) throw new Error('找不到該 Issue：' + issueId);
 

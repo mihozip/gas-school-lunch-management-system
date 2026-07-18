@@ -13,7 +13,7 @@ var FundingCalculationService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 1. 取得該月份所有的有效 DailyMealLedger 記錄
       var start = yearMonth + '-01';
       var lastDay = new Date(parseInt(yearMonth.substring(0, 4), 10), parseInt(yearMonth.substring(5, 7), 10), 0).getDate();

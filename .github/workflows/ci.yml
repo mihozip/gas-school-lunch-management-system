@@ -41,6 +41,7 @@ jobs:
             '(CLIENT_SECRET|ACCESS_TOKEN|REFRESH_TOKEN|private_key|AIza[0-9A-Za-z_-]{20,})' \
             . \
             --exclude-dir=.git \
+            --exclude-dir=.github \
             --exclude-dir=node_modules; then
             echo "Potential secret detected."
             exit 1

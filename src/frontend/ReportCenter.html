@@ -1,0 +1,132 @@
+<!-- ReportCenter.html -->
+<div class="card">
+  <div class="card-title">📄 補助報表與核章核銷中心</div>
+  <p class="error-card-desc">
+    本模組提供已月結鎖定 (closed) 月份的正式報表輸出、核章進度追蹤及 PDF 檔案包封存。
+  </p>
+
+  <div class="filter-bar" style="margin-top: 15px;">
+    <div class="filter-group">
+      <label for="repCenterMonth">選擇月份：</label>
+      <input type="month" id="repCenterMonth" class="form-control" style="width: 180px;" onchange="loadRepCenterClosingInfo()"/>
+    </div>
+    
+    <div style="margin-left: auto; display: flex; gap: 8px;">
+      <button class="btn btn-secondary" onclick="switchView('report-template-management')">🎨 範本規格管理</button>
+      <button class="btn btn-secondary" onclick="switchView('rate-migration')">🔄 費率規格遷移</button>
+    </div>
+  </div>
+</div>
+
+<!-- 關帳與就緒狀態面板 -->
+<div class="card" id="repClosingStatusCard" style="margin-top: 15px; display: none;">
+  <div class="card-title" id="repClosingTitle">九月關帳版本 V1</div>
+  <div style="margin-top: 10px; display: flex; gap: 15px; flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 250px; background-color: var(--background-color); padding: 12px; border-radius: 6px;">
+      <div style="font-weight: bold; color: var(--text-muted); font-size: 0.85rem;">關帳狀態</div>
+      <div id="repClosingStatusBadge" style="font-size: 1.2rem; font-weight: bold; margin-top: 5px;">closed</div>
+    </div>
+    <div style="flex: 1; min-width: 250px; background-color: var(--background-color); padding: 12px; border-radius: 6px;">
+      <div style="font-weight: bold; color: var(--text-muted); font-size: 0.85rem;">餐數對帳</div>
+      <div id="repClosingMealsCount" style="font-size: 1.2rem; font-weight: bold; margin-top: 5px;">0 餐</div>
+    </div>
+    <div style="flex: 1; min-width: 250px; background-color: var(--background-color); padding: 12px; border-radius: 6px;">
+      <div style="font-weight: bold; color: var(--text-muted); font-size: 0.85rem;">檔案包封存</div>
+      <div id="repClosingArtifactStatus" style="font-size: 1.2rem; font-weight: bold; margin-top: 5px;">completed</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 15px; display: flex; gap: 8px;" id="repClosingActionsBlock">
+    <!-- Actions dynamically loaded -->
+  </div>
+</div>
+
+<!-- 報表輸出控制 -->
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">報表輸出與預覽</div>
+  <div class="table-responsive" style="margin-top: 15px;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>報表類型</th>
+          <th>說明</th>
+          <th>隱私等級</th>
+          <th>可用操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>DAILY_SCHOOL_MEAL_SUMMARY</strong></td>
+          <td>全校每日用餐統計表</td>
+          <td>PUBLIC_SUMMARY</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="triggerPreview('DAILY_SCHOOL_MEAL_SUMMARY')">🔍 預覽</button>
+            <button class="btn btn-primary btn-sm" onclick="triggerOfficial('DAILY_SCHOOL_MEAL_SUMMARY')">📁 輸出正式</button>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>DAILY_CLASS_MEAL_SUMMARY</strong></td>
+          <td>各班每日用餐統計表</td>
+          <td>INTERNAL_SUMMARY</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="triggerPreview('DAILY_CLASS_MEAL_SUMMARY')">🔍 預覽</button>
+            <button class="btn btn-primary btn-sm" onclick="triggerOfficial('DAILY_CLASS_MEAL_SUMMARY')">📁 輸出正式</button>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>MONTHLY_MEAL_SUMMARY</strong></td>
+          <td>每月餐數統計表</td>
+          <td>INTERNAL_SUMMARY</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="triggerPreview('MONTHLY_MEAL_SUMMARY')">🔍 預覽</button>
+            <button class="btn btn-primary btn-sm" onclick="triggerOfficial('MONTHLY_MEAL_SUMMARY')">📁 輸出正式</button>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>GENERAL_STUDENT_FUNDING_DETAIL</strong></td>
+          <td>一般學生補助明細</td>
+          <td>INTERNAL_STUDENT_DETAIL</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="triggerPreview('GENERAL_STUDENT_FUNDING_DETAIL')">🔍 預覽</button>
+            <button class="btn btn-primary btn-sm" onclick="triggerOfficial('GENERAL_STUDENT_FUNDING_DETAIL')">📁 輸出正式</button>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>SPECIAL_STUDENT_FUNDING_DETAIL</strong></td>
+          <td>特殊身分學生補助明細</td>
+          <td>INTERNAL_STUDENT_DETAIL</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="triggerPreview('SPECIAL_STUDENT_FUNDING_DETAIL')">🔍 預覽</button>
+            <button class="btn btn-primary btn-sm" onclick="triggerOfficial('SPECIAL_STUDENT_FUNDING_DETAIL')">📁 輸出正式</button>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>TOWNSHIP_FUNDING_APPLICATION</strong></td>
+          <td>公所補助申請表 (通用版)</td>
+          <td>RESTRICTED_FINANCIAL_DETAIL</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="triggerPreview('TOWNSHIP_FUNDING_APPLICATION')">🔍 預覽</button>
+            <button class="btn btn-primary btn-sm" onclick="triggerOfficial('TOWNSHIP_FUNDING_APPLICATION')">📁 輸出正式</button>
+          </td>
+        </tr>
+        <tr>
+          <td><strong>COUNTY_FUNDING_APPLICATION</strong></td>
+          <td>縣府補助申請表 (通用版)</td>
+          <td>RESTRICTED_FINANCIAL_DETAIL</td>
+          <td>
+            <button class="btn btn-secondary btn-sm" onclick="triggerPreview('COUNTY_FUNDING_APPLICATION')">🔍 預覽</button>
+            <button class="btn btn-primary btn-sm" onclick="triggerOfficial('COUNTY_FUNDING_APPLICATION')">📁 輸出正式</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 已輸出正式報表包 -->
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">已產出報表封存清單 (Report Manifest)</div>
+  <div id="repManifestBlock" style="margin-top: 15px;">
+    <p style="color: var(--text-muted);">選擇月份並執行關帳後，可於此處下載與檢驗報表檔案雜湊值。</p>
+  </div>
+</div>

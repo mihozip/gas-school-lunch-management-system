@@ -1,0 +1,21 @@
+{
+  "name": "gas-school-lunch-management-system",
+  "version": "5.0.0",
+  "description": "學校午餐停餐、用餐統計與補助申請管理系統",
+  "scripts": {
+    "setup": "bash deploy.sh --create-if-missing",
+    "deploy": "bash deploy.sh",
+    "deploy:uat": "bash deploy.sh --env uat",
+    "deploy:production": "bash deploy.sh --env production",
+    "deploy:dry-run": "bash deploy.sh --dry-run",
+    "status": "clasp show-file-status",
+    "open": "clasp open-script",
+    "deployments": "clasp list-deployments"
+  },
+  "dependencies": {
+    "@google/clasp": "3.3.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

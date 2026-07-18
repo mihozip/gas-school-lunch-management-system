@@ -1,0 +1,172 @@
+<!-- ClosingManifest.html -->
+<div id="closing-manifest-view" class="subpage-view hidden">
+  <div class="view-header flex justify-between align-center">
+    <div>
+      <h2 class="view-title">📄 月結清單 Manifest 檢視</h2>
+      <p class="view-desc">調閱該月結版本的完整封存包設定、檔案清單與 SHA-256 安全校驗和雜湊。</p>
+    </div>
+    <button id="btn-back-to-history" class="btn btn-secondary">⬅ 返回歷史版本</button>
+  </div>
+
+  <div class="grid grid-cols-3 gap-4 my-4">
+    <!-- 基礎資訊卡 -->
+    <div class="card">
+      <h3 class="card-title">🏫 學校與月結資訊</h3>
+      <table class="table table-sm">
+        <tr><td>學校名稱</td><td id="man-school-name" class="font-semibold">--</td></tr>
+        <tr><td>學年度/學期</td><td id="man-semester">--</td></tr>
+        <tr><td>月結月份</td><td id="man-month">--</td></tr>
+        <tr><td>月結版本</td><td id="man-version" class="text-success font-bold">--</td></tr>
+        <tr><td>執行核銷者</td><td id="man-closed-by">--</td></tr>
+        <tr><td>核銷時間</td><td id="man-closed-at" class="text-sm">--</td></tr>
+      </table>
+    </div>
+
+    <!-- 財務統計卡 -->
+    <div class="card">
+      <h3 class="card-title">📊 財務分攤統計</h3>
+      <table class="table table-sm">
+        <tr><td>總用餐餐數</td><td id="man-meal-count" class="font-semibold">--</td></tr>
+        <tr><td>總餐費金額</td><td id="man-gross-amount" class="font-bold text-lg text-primary">--</td></tr>
+        <tr><td>公所補助</td><td id="man-sum-township">--</td></tr>
+        <tr><td>縣府補助</td><td id="man-sum-county">--</td></tr>
+        <tr><td>學校補助</td><td id="man-sum-school">--</td></tr>
+        <tr><td>學生自付</td><td id="man-sum-self-pay">--</td></tr>
+      </table>
+    </div>
+
+    <!-- 系統快照安全標籤 -->
+    <div class="card">
+      <h3 class="card-title">🛡 安全稽核與 Hash 值</h3>
+      <div class="flex flex-column gap-2" style="font-size: 13px;">
+        <div>
+          <span class="text-muted d-block">月結批次 ID：</span>
+          <span id="man-closing-id" class="font-mono bg-light p-1 rounded d-block text-truncate">--</span>
+        </div>
+        <div>
+          <span class="text-muted d-block">餐數資料 Hash (MD5/SHA256)：</span>
+          <span id="man-meal-hash" class="font-mono bg-light p-1 rounded d-block text-truncate">--</span>
+        </div>
+        <div>
+          <span class="text-muted d-block">補助分攤 Hash (MD5/SHA256)：</span>
+          <span id="man-funding-hash" class="font-mono bg-light p-1 rounded d-block text-truncate">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 導出的封存檔案清單 -->
+  <div class="card">
+    <h3 class="card-title">📂 封存檔案清單 (Google Drive 檔案包)</h3>
+    <div class="table-responsive">
+      <table class="table" id="manifest-files-table">
+        <thead>
+          <tr>
+            <th>檔案名稱</th>
+            <th>檔案類型</th>
+            <th class="text-right">檔案大小 (Bytes)</th>
+            <th class="font-mono text-sm">SHA-256 安全雜湊 Checksum</th>
+            <th>雲端連結</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="5" class="text-center text-muted">無資料</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    var btnBack = document.getElementById('btn-back-to-history');
+    btnBack.addEventListener('click', function() {
+      location.hash = '#closing-history';
+    });
+
+    function loadManifestDetail() {
+      // 解析 URL hash 中的參數 (e.g. #closing-manifest?id=CLOSE_xxx)
+      var hash = location.hash;
+      var queryIdx = hash.indexOf('?');
+      if (queryIdx === -1) return;
+      
+      var query = hash.substring(queryIdx + 1);
+      var params = {};
+      query.split('&').forEach(function(pair) {
+        var parts = pair.split('=');
+        params[parts[0]] = parts[1];
+      });
+
+      var cid = params.id;
+      if (!cid) return;
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (!res) {
+            showNotification('找不到該月結 Manifest', 'danger');
+            return;
+          }
+
+          var manifest = JSON.parse(res);
+
+          document.getElementById('man-school-name').innerText = manifest.school_name;
+          document.getElementById('man-semester').innerText = manifest.school_year + ' 學年度第 ' + manifest.semester + ' 學期';
+          document.getElementById('man-month').innerText = manifest.year_month;
+          document.getElementById('man-version').innerText = 'v' + manifest.closing_version;
+          document.getElementById('man-closed-by').innerText = manifest.closed_by;
+          document.getElementById('man-closed-at').innerText = manifest.closed_at;
+
+          document.getElementById('man-meal-count').innerText = manifest.total_meal_count + ' 餐';
+          document.getElementById('man-gross-amount').innerText = '$' + (manifest.gross_amount_minor / 100).toFixed(2);
+          
+          document.getElementById('man-sum-township').innerText = '$' + (manifest.allocation_by_source.township / 100).toFixed(2);
+          document.getElementById('man-sum-county').innerText = '$' + (manifest.allocation_by_source.county / 100).toFixed(2);
+          document.getElementById('man-sum-school').innerText = '$' + (manifest.allocation_by_source.school / 100).toFixed(2);
+          document.getElementById('man-sum-self-pay').innerText = '$' + (manifest.allocation_by_source.self_pay / 100).toFixed(2);
+
+          document.getElementById('man-closing-id').innerText = manifest.closing_id;
+          document.getElementById('man-closing-id').title = manifest.closing_id;
+          document.getElementById('man-meal-hash').innerText = manifest.meal_source_hash || 'N/A';
+          document.getElementById('man-funding-hash').innerText = manifest.funding_source_hash || 'N/A';
+
+          // 渲染檔案清單
+          renderFilesTable(manifest.file_manifest);
+        })
+        .withFailureHandler(function(err) {
+          showNotification('載入 Manifest 失敗: ' + err.message, 'danger');
+        })
+        .apiGetClosingManifest(cid);
+    }
+
+    function renderFilesTable(filesMap) {
+      var tbody = document.querySelector('#manifest-files-table tbody');
+      tbody.innerHTML = '';
+      if (!filesMap) return;
+
+      var fileTypes = {
+        daily_meal_ledger: '學生點名明細帳冊 (CSV)',
+        funding_allocation_ledger: '補助分攤明細帳冊 (CSV)',
+        daily_meal_summary: '每日餐數統計表 (CSV)',
+        monthly_meal_summary: '月餐數彙整表 (CSV)',
+        monthly_funding_summary: '月補助彙總對帳表 (CSV)'
+      };
+
+      for (var key in filesMap) {
+        var file = filesMap[key];
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td><b>' + file.id + '</b></td>' + // 這裡顯示名稱或 ID
+                     '<td>' + (fileTypes[key] || key) + '</td>' +
+                     '<td class="text-right">' + file.size + ' Bytes</td>' +
+                     '<td class="font-mono text-sm">' + file.sha + '</td>' +
+                     '<td><a href="' + file.url + '" target="_blank" class="btn btn-sm btn-outline-success">📁 開啟</a></td>';
+        tbody.appendChild(tr);
+      }
+    }
+
+    window.addEventListener('hashchange', function() {
+      if (location.hash.indexOf('#closing-manifest') === 0) {
+        loadManifestDetail();
+      }
+    });
+  })();
+</script>

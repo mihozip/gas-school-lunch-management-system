@@ -1,0 +1,249 @@
+<div class="card" id="studentManagementView">
+  <div class="card-title">學生名冊與學籍管理</div>
+  
+  <!-- 過濾與功能按鈕區 -->
+  <div class="filters-row" style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; text-align: left;">
+    <div style="flex: 1; min-width: 180px;">
+      <input type="text" id="studentSearchInput" placeholder="搜尋姓名或學號..." style="width: 100%;" oninput="loadStudentsList()">
+    </div>
+    <div style="width: 110px;">
+      <select id="studentYearFilter" onchange="onStudentYearChange()">
+        <option value="115">115 學年度</option>
+        <option value="116">116 學年度</option>
+      </select>
+    </div>
+    <div style="width: 130px;">
+      <select id="studentClassFilter" onchange="loadStudentsList()">
+        <option value="">載入班級中...</option>
+      </select>
+    </div>
+    <div style="width: 110px;">
+      <select id="studentSubsidyFilter" onchange="loadStudentsList()">
+        <option value="">所有身分</option>
+      </select>
+    </div>
+    <div style="width: 110px;">
+      <select id="studentDietFilter" onchange="loadStudentsList()">
+        <option value="">所有餐別</option>
+      </select>
+    </div>
+    <div style="width: 110px;">
+      <select id="studentStatusFilter" onchange="loadStudentsList()">
+        <option value="normal">供餐中</option>
+        <option value="suspended">長期停餐</option>
+        <option value="transferred">轉出/畢業</option>
+        <option value="disabled">停用學籍</option>
+        <option value="">全部狀態</option>
+      </select>
+    </div>
+    <div style="display: flex; gap: 5px;">
+      <button class="btn btn-primary" onclick="openStudentCreateModal()" id="btnCreateStudent">➕ 新增學生</button>
+      <button class="btn btn-secondary" onclick="openImportWizard()" id="btnImportStudent">📤 貼上匯入</button>
+    </div>
+  </div>
+
+  <!-- 學生列表表格 -->
+  <div style="overflow-x: auto;">
+    <table class="table" style="width:100%; border-collapse: collapse; text-align: left;">
+      <thead>
+        <tr>
+          <th>班級</th>
+          <th>座號</th>
+          <th>學號</th>
+          <th>姓名 (遮罩)</th>
+          <th>補助身分</th>
+          <th>膳食類別</th>
+          <th>供餐狀態</th>
+          <th>開始供餐日</th>
+          <th>結束供餐日</th>
+          <th>備註</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="studentTableBody">
+        <tr>
+          <td colspan="11" style="text-align: center; color: var(--text-muted);">正在載入學生名冊...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+var AppCache = {
+  classes: [],
+  categories: [],
+  dietaryTypes: []
+};
+
+/**
+ * 年月選單載入
+ */
+function onStudentYearChange() {
+  loadClassesFilter().then(loadStudentsList);
+}
+
+/**
+ * 載入班級清單過濾下拉選單
+ */
+function loadClassesFilter() {
+  var schoolYear = document.getElementById('studentYearFilter').value;
+  return callServer('apiListClasses', { school_year: schoolYear, enabled: true })
+    .then(function(classes) {
+      AppCache.classes = classes;
+      var select = document.getElementById('studentClassFilter');
+      select.innerHTML = '<option value="">所有班級</option>';
+      
+      classes.forEach(function(c) {
+        var opt = document.createElement('option');
+        opt.value = c.class_id;
+        opt.innerText = c.class_name + ' (' + c.class_code + ')';
+        select.appendChild(opt);
+      });
+    });
+}
+
+/**
+ * 載入補助身分類別與餐別
+ */
+function loadStaticCategories() {
+  // 載入身分類別
+  callServer('apiGetSystemStatus').then(function(status) {
+    // 取得身分類別
+    google.script.run.withSuccessHandler(function(res) {
+      if (res.success) {
+        AppCache.categories = res.data;
+        var select = document.getElementById('studentSubsidyFilter');
+        select.innerHTML = '<option value="">所有身分</option>';
+        res.data.forEach(function(cat) {
+          var opt = document.createElement('option');
+          opt.value = cat.subsidy_category_id;
+          opt.innerText = cat.category_name;
+          select.appendChild(opt);
+        });
+      }
+    }).apiGetSystemStatus(); // 這裡我們可以直接寫死或透過 api 讀取
+  });
+
+  // 載入膳食類別
+  callServer('apiGetDietaryTypes').then(function(res) {
+    AppCache.dietaryTypes = res;
+    var select = document.getElementById('studentDietFilter');
+    select.innerHTML = '<option value="">所有餐別</option>';
+    res.forEach(function(d) {
+      if (d.enabled) {
+        var opt = document.createElement('option');
+        opt.value = d.code;
+        opt.innerText = d.name;
+        select.appendChild(opt);
+      }
+    });
+  });
+}
+
+/**
+ * 載入學生清單
+ */
+function loadStudentsList() {
+  // 檢查是否唯讀
+  if (App.user.role === 'viewer') {
+    document.getElementById('studentTableBody').innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--status-blocking); font-weight:bold;">您所屬的角色 (Viewer) 權限限制查看學生個資名單。</td></tr>';
+    document.getElementById('btnCreateStudent').style.display = 'none';
+    document.getElementById('btnImportStudent').style.display = 'none';
+    return;
+  }
+
+  var filters = {
+    school_year: document.getElementById('studentYearFilter').value,
+    class_id: document.getElementById('studentClassFilter').value,
+    subsidy_category_id: document.getElementById('studentSubsidyFilter').value,
+    dietary_type: document.getElementById('studentDietFilter').value,
+    meal_status: document.getElementById('studentStatusFilter').value === 'disabled' ? '' : document.getElementById('studentStatusFilter').value,
+    enabled: document.getElementById('studentStatusFilter').value === 'disabled' ? 'false' : 'true',
+    search: document.getElementById('studentSearchInput').value
+  };
+
+  callServer('apiListStudents', filters)
+    .then(function(students) {
+      var tbody = document.getElementById('studentTableBody');
+      tbody.innerHTML = '';
+
+      var classMap = {};
+      AppCache.classes.forEach(function(c) { classMap[c.class_id] = c.class_name; });
+
+      var canEdit = (App.user.role === 'system_admin' || App.user.role === 'lunch_admin');
+
+      if (students.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-muted);">符合過濾條件的學生不存在。</td></tr>';
+        return;
+      }
+
+      students.forEach(function(s) {
+        var tr = document.createElement('tr');
+        
+        var statusBadge = '';
+        if (s.enabled === false || s.enabled === 'FALSE') {
+          statusBadge = '<span class="badge badge-blocking">停用學籍</span>';
+        } else if (s.meal_status === 'normal') {
+          statusBadge = '<span class="badge badge-healthy">供餐中</span>';
+        } else if (s.meal_status === 'suspended') {
+          statusBadge = '<span class="badge badge-warning">長期停餐</span>';
+        } else if (s.meal_status === 'transferred') {
+          statusBadge = '<span class="badge badge-blocking">已轉出</span>';
+        } else {
+          statusBadge = '<span class="badge badge-blocking">已畢業</span>';
+        }
+
+        // 補助類別名稱對應
+        var catName = s.subsidy_category_id;
+        if (AppCache.categories && AppCache.categories.length > 0) {
+          var matchedCat = AppCache.categories.filter(function(x) { return x.subsidy_category_id === s.subsidy_category_id; })[0];
+          if (matchedCat) catName = matchedCat.category_name;
+        }
+
+        var actionsHtml = '';
+        if (canEdit) {
+          actionsHtml = 
+            '<button class="btn btn-secondary" style="font-size:0.75rem; padding: 4px 6px; margin-right:4px;" onclick="openStudentEditModal(\'' + s.student_id + '\')">編輯</button>' +
+            '<button class="btn btn-secondary" style="font-size:0.75rem; padding: 4px 6px; margin-right:4px;" onclick="openHistoryModal(\'' + s.student_id + '\')">歷程</button>';
+          if (s.enabled === true || s.enabled === 'TRUE') {
+            actionsHtml += '<button class="btn btn-danger" style="font-size:0.75rem; padding: 4px 6px;" onclick="disableStudent(\'' + s.student_id + '\')">停用</button>';
+          }
+        } else {
+          actionsHtml = '<span style="color:var(--text-muted); font-size:0.8rem;">無權限</span>';
+        }
+
+        tr.innerHTML = 
+          '<td>' + escapeHtml(classMap[s.class_id] || '轉出/未知') + '</td>' +
+          '<td>' + (s.seat_number || 0) + '</td>' +
+          '<td>' + escapeHtml(s.student_number || '-') + '</td>' +
+          '<td>' + escapeHtml(s.student_name) + '</td>' +
+          '<td>' + escapeHtml(catName) + '</td>' +
+          '<td>' + escapeHtml(s.dietary_type) + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>' + escapeHtml(s.start_date || '-') + '</td>' +
+          '<td>' + escapeHtml(s.end_date || '-') + '</td>' +
+          '<td>' + escapeHtml(s.note || '-') + '</td>' +
+          '<td>' + actionsHtml + '</td>';
+        
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function(err) {
+      showToast('載入學生清單失敗: ' + err.message, 'error');
+    });
+}
+
+function disableStudent(studentId) {
+  if (!confirm('您確定要停用該學生的學籍嗎？停用後將一併截止其班級與身分歷程，並設定為已轉出停餐狀態！')) return;
+  
+  callServer('apiDisableStudent', studentId)
+    .then(function() {
+      showToast('已停用該學生學籍', 'success');
+      loadStudentsList();
+    })
+    .catch(function(err) {
+      showToast(err.message, 'error');
+    });
+}
+</script>

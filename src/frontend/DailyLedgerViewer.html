@@ -1,0 +1,184 @@
+<div class="card" id="dailyLedgerView">
+  <div class="card-title">逐生每日用餐資格帳冊 (Audit Ledger)</div>
+  
+  <div style="display: flex; gap: 15px; margin-bottom: 20px; text-align: left; align-items: flex-end; flex-wrap: wrap;">
+    <div>
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">查詢日期</label>
+      <input type="date" id="ledgerDate" onchange="loadLedgerRecords()" style="padding: 6px 12px;">
+    </div>
+    <div>
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">班級過濾</label>
+      <select id="ledgerClassSelect" onchange="loadLedgerRecords()" style="padding: 6px 12px; min-width: 120px;"></select>
+    </div>
+    <div>
+      <input type="text" id="ledgerSearch" placeholder="搜尋姓名/學號..." oninput="filterLedgerRoster()" style="padding: 6px 12px; width: 160px;">
+    </div>
+    <div style="font-size:0.85rem; background: var(--primary-bg); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(16,185,129,0.2);">
+      ℹ️ 用餐資格依歷程還原，<b>不直接</b> 採用學生目前快取班級與身分。
+    </div>
+  </div>
+
+  <!-- 帳冊 Table -->
+  <div style="overflow-x: auto;">
+    <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+      <thead>
+        <tr>
+          <th>日期</th>
+          <th>班級</th>
+          <th>座號</th>
+          <th>學號</th>
+          <th>學生姓名</th>
+          <th>膳食類別</th>
+          <th>當日補助身分</th>
+          <th>供餐</th>
+          <th>長期停餐</th>
+          <th>請假登記</th>
+          <th>排除類型</th>
+          <th>說明事由</th>
+          <th>應計餐數</th>
+          <th> gross 金額</th>
+        </tr>
+      </thead>
+      <tbody id="ledgerTableBody">
+        <tr>
+          <td colspan="14" style="text-align: center; color: var(--text-muted);">請先選擇日期與班級以載入帳冊資料。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+var LedgerCache = {
+  list: []
+};
+
+/**
+ * 初始化 Ledger 檢視
+ */
+function initDailyLedgerView() {
+  document.getElementById('ledgerDate').value = Utils.formatDate(new Date());
+
+  // 載入班級過濾下拉選單
+  var select = document.getElementById('ledgerClassSelect');
+  select.innerHTML = '<option value="">▼ 全校所有班級</option>';
+
+  callServer('apiListClasses', { school_year: 115, enabled: true })
+    .then(function(classes) {
+      classes.forEach(function(c) {
+        var opt = document.createElement('option');
+        opt.value = c.class_id;
+        opt.innerText = c.class_name;
+        
+        if (App.user.role === 'class_teacher') {
+          if (c.class_id === App.user.class_id) {
+            select.appendChild(opt);
+          }
+        } else {
+          select.appendChild(opt);
+        }
+      });
+      
+      // 導師預設選擇自己班級
+      if (App.user.role === 'class_teacher') {
+        select.value = App.user.class_id;
+      }
+
+      loadLedgerRecords();
+    });
+}
+
+/**
+ * 載入資料
+ */
+function loadLedgerRecords() {
+  var dateStr = document.getElementById('ledgerDate').value;
+  var classId = document.getElementById('ledgerClassSelect').value;
+  var tbody = document.getElementById('ledgerTableBody');
+
+  if (App.user.role === 'viewer') {
+    tbody.innerHTML = '<tr><td colspan="14" style="text-align: center; color: var(--status-blocking); font-weight:bold;">權限不足：檢視者 (viewer) 角色禁止存取逐生對帳明細。</td></tr>';
+    return;
+  }
+
+  showLoading('載入學生用餐帳冊明細中...');
+
+  callServer('apiGetDailyMealLedger', [dateStr, { class_id: classId }])
+    .then(function(records) {
+      hideLoading();
+      LedgerCache.list = records;
+      renderLedgerTable();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+      tbody.innerHTML = '<tr><td colspan="14" style="text-align: center; color: var(--status-blocking); font-weight:bold;">載入失敗: ' + err.message + '</td></tr>';
+    });
+}
+
+/**
+ * 渲染
+ */
+function renderLedgerTable() {
+  var tbody = document.getElementById('ledgerTableBody');
+  tbody.innerHTML = '';
+
+  var search = document.getElementById('ledgerSearch').value.toLowerCase();
+
+  var filtered = LedgerCache.list.filter(function(l) {
+    // 依據搜尋詞過濾
+    var matchesSearch = (l.student_name_masked || '').indexOf(search) !== -1 ||
+                        (l.student_number_snapshot || '').toLowerCase().indexOf(search) !== -1;
+    return matchesSearch;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="14" style="text-align: center; color: var(--text-muted);">無任何相符的對帳資料。</td></tr>';
+    return;
+  }
+
+  // 排序：先按 class_code，再按 seat_number (需在 ledger 取得 seat_number 快取或利用學生資料)
+  // 此處簡化按學號或 ledger_id 排序
+  filtered.sort(function(a, b) {
+    return a.student_number_snapshot.localeCompare(b.student_number_snapshot);
+  });
+
+  filtered.forEach(function(l) {
+    var tr = document.createElement('tr');
+
+    var isMeal = l.meal_day_flag === true || l.meal_day_flag === 'TRUE';
+    var isSusp = l.suspension_flag === true || l.suspension_flag === 'TRUE';
+    var isExc = l.manual_exception_flag === true || l.manual_exception_flag === 'TRUE';
+
+    // 遮罩姓名
+    var nameToDisplay = l.student_name_masked;
+    if (App.user.role === 'system_admin' || App.user.role === 'lunch_admin') {
+      // 管理員可以查看真實姓名 (在此由於 ledger 本身唯獨儲存 masked，我們不需從 students reload，若需要可回溯，但 mask 符合 audit ledger 即可)
+      // 若後端 ledger 僅存 student_name_masked，前端管理員也是看到遮罩。為求簡單一致，統一顯示 ledger 上的 student_name_masked，若為管理員且有 students 表則顯示。
+      nameToDisplay = l.student_name_masked;
+    }
+
+    tr.innerHTML = 
+      '<td>' + l.date + '</td>' +
+      '<td>' + escapeHtml(l.class_code_snapshot || '-') + '</td>' +
+      '<td>' + escapeHtml(l.student_number_snapshot.substring(l.student_number_snapshot.length - 2) || '-') + '</td>' + // 示意座號
+      '<td>' + escapeHtml(l.student_number_snapshot || '-') + '</td>' +
+      '<td>' + escapeHtml(nameToDisplay) + '</td>' +
+      '<td>' + escapeHtml(l.dietary_type || '葷食') + '</td>' +
+      '<td>' + escapeHtml(l.subsidy_category_snapshot || '一般') + '</td>' +
+      '<td>' + (isMeal ? '🟢' : '🔴') + '</td>' +
+      '<td>' + (isSusp ? '⚠️ 是' : '否') + '</td>' +
+      '<td>' + (isExc ? '⚠️ 是' : '否') + '</td>' +
+      '<td><span class="badge">' + l.exclusion_type + '</span></td>' +
+      '<td>' + escapeHtml(l.exclusion_reason || '-') + '</td>' +
+      '<td style="font-weight:bold; color:var(--primary-color);">' + l.eligible_meal_count + '</td>' +
+      '<td>$' + l.gross_meal_amount + '</td>';
+    
+    tbody.appendChild(tr);
+  });
+}
+
+function filterLedgerRoster() {
+  renderLedgerTable();
+}
+</script>

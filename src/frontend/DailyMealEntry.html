@@ -1,0 +1,517 @@
+<div class="card" id="dailyMealEntryView">
+  <div class="card-title">每日停餐登記 (導師專用)</div>
+  
+  <!-- 登記前導設定與時間狀態 -->
+  <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; justify-content: space-between; text-align: left;">
+    <div style="display: flex; gap: 15px; align-items: center;">
+      <div>
+        <label style="font-weight: bold; display: block; margin-bottom: 5px;">選擇登記日期</label>
+        <input type="date" id="entryDate" onchange="loadDailyMealEntry()" style="padding: 6px 12px;">
+      </div>
+      <div>
+        <label style="font-weight: bold; display: block; margin-bottom: 5px;">就讀班級</label>
+        <select id="entryClassSelect" onchange="loadDailyMealEntry()" style="padding: 6px 12px; min-width: 150px;"></select>
+      </div>
+    </div>
+    
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+      <div style="background-color: var(--border-color); padding: 8px 12px; border-radius: 6px; font-size: 0.88rem;">
+        截止時間：<span style="font-weight: bold; color: var(--status-blocking);" id="entryDeadlineText">09:00</span>
+      </div>
+      <div style="background-color: var(--border-color); padding: 8px 12px; border-radius: 6px; font-size: 0.88rem;">
+        確認狀態：<span id="entryStatusBadge">-</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 用餐統計看板 -->
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; text-align: center;">
+    <div style="background: #f8fafc; border: 1px solid var(--border-color); padding: 10px; border-radius: 8px;">
+      <div style="font-size:0.8rem; color:var(--text-muted);">應到學生數</div>
+      <div style="font-size:1.5rem; font-weight:bold; color:var(--text-main);" id="entryCntExpected">0</div>
+    </div>
+    <div style="background: #f8fafc; border: 1px solid var(--border-color); padding: 10px; border-radius: 8px;">
+      <div style="font-size:0.8rem; color:var(--text-muted);">長期停餐 (系統)</div>
+      <div style="font-size:1.5rem; font-weight:bold; color:var(--status-warning);" id="entryCntSuspended">0</div>
+    </div>
+    <div style="background: #f8fafc; border: 1px solid var(--border-color); padding: 10px; border-radius: 8px;">
+      <div style="font-size:0.8rem; color:var(--text-muted);">請假登記 (導師)</div>
+      <div style="font-size:1.5rem; font-weight:bold; color:var(--status-blocking);" id="entryCntExceptions">0</div>
+    </div>
+    <div style="background: #eed; border: 1px solid #cba; padding: 10px; border-radius: 8px;">
+      <div style="font-size:0.8rem; color:var(--text-muted);">預估實到用餐數</div>
+      <div style="font-size:1.5rem; font-weight:bold; color:var(--primary-color);" id="entryCntActual">0</div>
+    </div>
+  </div>
+
+  <!-- 快速核勾工具列 -->
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; text-align: left;">
+    <div style="display: flex; gap: 10px; align-items: center;">
+      <input type="text" id="entrySearch" placeholder="搜尋座號、姓名..." oninput="filterEntryRoster()" style="padding: 6px 12px; width: 180px;">
+      <button class="btn btn-secondary" onclick="toggleOnlyShowExceptions()" id="btnToggleExceptionsFilter" style="font-size:0.85rem; padding: 6px 12px;">🔍 僅顯示未用餐學生</button>
+    </div>
+    <div style="display: flex; gap: 8px;" id="entryActionToolbar">
+      <button class="btn btn-secondary" style="font-size:0.85rem;" onclick="applyYesterdayExceptions()">套用前一供餐日紀錄</button>
+      <button class="btn btn-secondary" style="font-size:0.85rem;" onclick="clearAllTodayDraftExceptions()">今日全班正常用餐</button>
+    </div>
+  </div>
+
+  <!-- 點名網格表格 -->
+  <div style="overflow-x: auto; margin-bottom: 25px;">
+    <table class="table" style="width: 100%; border-collapse: collapse; text-align: left;">
+      <thead>
+        <tr>
+          <th style="width: 80px;">座號</th>
+          <th>學號</th>
+          <th>姓名</th>
+          <th>膳食類別</th>
+          <th>補助身分</th>
+          <th>供餐狀態</th>
+          <th style="width: 150px;">未用餐原因 (請假類別)</th>
+          <th>備註說明</th>
+        </tr>
+      </thead>
+      <tbody id="entryTableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- 提交按鈕列 -->
+  <div style="display: flex; justify-content: flex-end; gap: 15px; border-top: 1px solid var(--border-color); padding-top: 20px;" id="entryFooterActions">
+    <button class="btn btn-secondary" onclick="saveEntryDraft()">💾 暫存草稿</button>
+    <button class="btn btn-primary" onclick="submitEntryConfirm()">🚀 完成今日登記確認</button>
+  </div>
+</div>
+
+<script>
+var EntryCache = {
+  classId: '',
+  dateStr: '',
+  roster: [],
+  isLocked: false,
+  isMealDay: true
+};
+
+/**
+ * 頁面初始化
+ */
+function initDailyMealEntryView() {
+  // 設定預設日期為今天
+  document.getElementById('entryDate').value = Utils.formatDate(new Date());
+  
+  // 載入班級選單
+  var userRole = App.user.role;
+  var userClassId = App.user.class_id;
+
+  var select = document.getElementById('entryClassSelect');
+  select.innerHTML = '';
+
+  // 載入該學年度所有班級
+  callServer('apiListClasses', { school_year: 115, enabled: true })
+    .then(function(classes) {
+      classes.forEach(function(c) {
+        var opt = document.createElement('option');
+        opt.value = c.class_id;
+        opt.innerText = c.class_name;
+        
+        // 導師角色限制只能選自己班
+        if (userRole === 'class_teacher') {
+          if (c.class_id === userClassId) {
+            select.appendChild(opt);
+          }
+        } else {
+          select.appendChild(opt);
+        }
+      });
+
+      if (select.options.length === 0) {
+        select.innerHTML = '<option value="">無所屬班級</option>';
+      }
+      
+      loadDailyMealEntry();
+    });
+}
+
+/**
+ * 載入當日登記明細
+ */
+function loadDailyMealEntry() {
+  var classId = document.getElementById('entryClassSelect').value;
+  var dateStr = document.getElementById('entryDate').value;
+  
+  if (!classId || !dateStr) return;
+
+  EntryCache.classId = classId;
+  EntryCache.dateStr = dateStr;
+
+  showLoading('載入點名名冊中...');
+  
+  callServer('apiGetClassMealEntry', [classId, dateStr])
+    .then(function(res) {
+      hideLoading();
+      
+      EntryCache.isMealDay = (res.schoolDay.is_meal_day === true || res.schoolDay.is_meal_day === 'TRUE');
+      
+      // 更新截止時間
+      var deadline = Config.get('DAILY_CONFIRM_DEADLINE') || '09:00';
+      document.getElementById('entryDeadlineText').innerText = deadline;
+
+      var status = res.confirmation.confirm_status || 'not_started';
+      var badgeHtml = '';
+      if (status === 'draft') badgeHtml = '<span class="badge badge-secondary">暫存草稿 (draft)</span>';
+      else if (status === 'confirmed') badgeHtml = '<span class="badge badge-healthy">完成登記確認 (confirmed)</span>';
+      else if (status === 'reopened') badgeHtml = '<span class="badge badge-warning">管理員退回重開 (reopened)</span>';
+      else if (status === 'locked') badgeHtml = '<span class="badge badge-blocking">月結鎖定歸檔 (locked)</span>';
+      else badgeHtml = '<span class="badge badge-secondary">尚未開始 (not_started)</span>';
+      document.getElementById('entryStatusBadge').innerHTML = badgeHtml;
+
+      // 檢查是否鎖定不可修改
+      // 1. 月結鎖定 2. confirmed (導師不可修改，除非管理員重開)
+      var isLocked = (status === 'locked' || (status === 'confirmed' && App.user.role === 'class_teacher'));
+      EntryCache.isLocked = isLocked;
+
+      // 如果逾時，且非管理員補登，則設定唯讀
+      var todayStr = Utils.formatDate(new Date());
+      var isExpired = false;
+      if (dateStr === todayStr) {
+        var now = new Date();
+        var nowTime = Utils.padZero(now.getHours()) + ':' + Utils.padZero(now.getMinutes());
+        if (nowTime > deadline && App.user.role === 'class_teacher') {
+          isExpired = true;
+        }
+      } else if (dateStr < todayStr && App.user.role === 'class_teacher') {
+        // 歷史日期非管理員
+        var allowRetroactive = Config.get('ALLOW_RETROACTIVE_EDIT') === 'TRUE';
+        var retroactiveDays = parseInt(Config.get('RETROACTIVE_EDIT_DAYS') || '0', 10);
+        var dateDiff = Math.floor((new Date(todayStr).getTime() - new Date(dateStr).getTime()) / 86400000);
+        if (!allowRetroactive || dateDiff > retroactiveDays) {
+          isExpired = true;
+        }
+      }
+
+      if (isLocked || isExpired) {
+        document.getElementById('entryFooterActions').style.display = 'none';
+        document.getElementById('entryActionToolbar').style.display = 'none';
+        EntryCache.isLocked = true;
+      } else {
+        document.getElementById('entryFooterActions').style.display = 'flex';
+        document.getElementById('entryActionToolbar').style.display = 'flex';
+        EntryCache.isLocked = false;
+      }
+
+      EntryCache.roster = res.students;
+      renderEntryTable();
+      calculateEntryCounts();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+      document.getElementById('entryTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--status-blocking); font-weight:bold;">' + err.message + '</td></tr>';
+    });
+}
+
+/**
+ * 渲染點名名冊
+ */
+function renderEntryTable() {
+  var tbody = document.getElementById('entryTableBody');
+  tbody.innerHTML = '';
+
+  var search = document.getElementById('entrySearch').value.toLowerCase();
+  var onlyExceptions = document.getElementById('btnToggleExceptionsFilter').classList.contains('active-filter');
+
+  EntryCache.roster.forEach(function(s) {
+    // 關鍵字搜尋
+    var matchesSearch = s.student_name.toLowerCase().indexOf(search) !== -1 || 
+                        String(s.seat_number).indexOf(search) !== -1 ||
+                        (s.student_number || '').toLowerCase().indexOf(search) !== -1;
+    if (!matchesSearch) return;
+
+    // 僅顯示未用餐學生
+    var isNoMeal = s.is_long_term_suspended || s.is_manual_exception;
+    if (onlyExceptions && !isNoMeal) return;
+
+    var tr = document.createElement('tr');
+    
+    var statusBadge = '';
+    if (s.is_long_term_suspended) {
+      statusBadge = '<span class="badge badge-warning">系統長期停餐</span>';
+    } else if (s.is_manual_exception) {
+      statusBadge = '<span class="badge badge-blocking">登記未用餐</span>';
+    } else {
+      statusBadge = '<span class="badge badge-healthy">供餐中</span>';
+    }
+
+    var reasonCellHtml = '';
+    var noteCellHtml = '';
+
+    if (EntryCache.isLocked) {
+      // 唯讀模式
+      reasonCellHtml = s.is_long_term_suspended ? '長期停餐' : (s.exception_type ? escapeHtml(getExceptionTypeName(s.exception_type)) : '-');
+      noteCellHtml = s.is_long_term_suspended ? escapeHtml(s.suspension_reason) : escapeHtml(s.exception_reason || '-');
+    } else {
+      // 編輯模式
+      if (s.is_long_term_suspended) {
+        reasonCellHtml = '<span style="color:var(--text-muted);">出國/長期停餐</span>';
+        noteCellHtml = '<input type="text" value="' + escapeHtml(s.suspension_reason) + '" disabled style="width:100%;">';
+      } else {
+        // 手動登記請假下拉選單
+        var select = document.createElement('select');
+        select.className = 'exception-type-select';
+        select.dataset.studentId = s.student_id;
+        select.style.width = '100%';
+        select.onchange = function() { onExceptionChange(s.student_id, this.value); };
+        
+        var options = [
+          { val: '', text: '✔️ 正常供餐 (食)' },
+          { val: 'leave', text: '📝 事/病/事假 (扣餐)' },
+          { val: 'official_leave', text: '🏢 公假 (扣餐)' },
+          { val: 'activity', text: '校外活動 (扣餐)' },
+          { val: 'temporary_no_meal', text: '臨時不供餐 (扣餐)' }
+        ];
+        options.forEach(function(o) {
+          var opt = document.createElement('option');
+          opt.value = o.val;
+          opt.innerText = o.text;
+          if (s.is_manual_exception && s.exception_type === o.val) {
+            opt.selected = true;
+          }
+          select.appendChild(opt);
+        });
+        reasonCellHtml = select.outerHTML;
+
+        // 備註輸入框
+        var noteInput = document.createElement('input');
+        noteInput.type = 'text';
+        noteInput.className = 'exception-reason-input';
+        noteInput.dataset.studentId = s.student_id;
+        noteInput.value = s.is_manual_exception ? (s.exception_reason || '') : '';
+        noteInput.style.width = '100%';
+        noteInput.placeholder = '請輸入事由...';
+        noteInput.oninput = function() { onExceptionReasonInput(s.student_id, this.value); };
+        noteCellHtml = noteInput.outerHTML;
+      }
+    }
+
+    tr.innerHTML = 
+      '<td>' + s.seat_number + '</td>' +
+      '<td>' + escapeHtml(s.student_number || '-') + '</td>' +
+      '<td>' + escapeHtml(s.student_name) + '</td>' +
+      '<td>' + escapeHtml(s.dietary_type) + '</td>' +
+      '<td>' + escapeHtml(s.subsidy_category_name) + '</td>' +
+      '<td>' + statusBadge + '</td>' +
+      '<td>' + reasonCellHtml + '</td>' +
+      '<td>' + noteCellHtml + '</td>';
+    
+    tbody.appendChild(tr);
+  });
+}
+
+function getExceptionTypeName(type) {
+  var names = { leave: '事/病/事假', official_leave: '公假', activity: '校外活動', temporary_no_meal: '臨時不供餐' };
+  return names[type] || '其他';
+}
+
+function onExceptionChange(studentId, val) {
+  var s = EntryCache.roster.filter(function(x) { return x.student_id === studentId; })[0];
+  if (s) {
+    if (val === '') {
+      s.is_manual_exception = false;
+      s.exception_type = '';
+    } else {
+      s.is_manual_exception = true;
+      s.exception_type = val;
+    }
+    calculateEntryCounts();
+  }
+}
+
+function onExceptionReasonInput(studentId, val) {
+  var s = EntryCache.roster.filter(function(x) { return x.student_id === studentId; })[0];
+  if (s) {
+    s.exception_reason = val;
+  }
+}
+
+/**
+ * 計算頂部餐數統計欄
+ */
+function calculateEntryCounts() {
+  var expected = EntryCache.roster.length;
+  var suspended = EntryCache.roster.filter(function(s) { return s.is_long_term_suspended; }).length;
+  var manual = EntryCache.roster.filter(function(s) { return s.is_manual_exception; }).length;
+  var actual = expected - (suspended + manual);
+
+  document.getElementById('entryCntExpected').innerText = expected;
+  document.getElementById('entryCntSuspended').innerText = suspended;
+  document.getElementById('entryCntExceptions').innerText = manual;
+  document.getElementById('entryCntActual').innerText = actual;
+}
+
+/**
+ * 僅顯示未用餐學生核勾過濾
+ */
+function toggleOnlyShowExceptions() {
+  var btn = document.getElementById('btnToggleExceptionsFilter');
+  btn.classList.toggle('active-filter');
+  
+  if (btn.classList.contains('active-filter')) {
+    btn.style.backgroundColor = 'var(--primary-light)';
+    btn.style.color = 'white';
+  } else {
+    btn.style.backgroundColor = '';
+    btn.style.color = '';
+  }
+  renderEntryTable();
+}
+
+function filterEntryRoster() {
+  renderEntryTable();
+}
+
+/**
+ * 快捷鍵：套用前一供餐日紀錄
+ */
+function applyYesterdayExceptions() {
+  showLoading('載入前一日記錄中...');
+  
+  // 計算前一日日期，此處由於可能跨過六日，後端由 SchoolDaysService 可以取得前一個 is_meal_day 的日期
+  // 前端簡單以 listSchoolDays 往前算
+  callServer('apiListSchoolDays', { school_year: 115 })
+    .then(function(days) {
+      // 找出小於 EntryCache.dateStr 且 is_meal_day 為真的最大日期
+      var prevMealDay = '';
+      days.sort(function(a, b) { return b.date.localeCompare(a.date); });
+      for (var i = 0; i < days.length; i++) {
+        if (days[i].date < EntryCache.dateStr && (days[i].is_meal_day === true || days[i].is_meal_day === 'TRUE')) {
+          prevMealDay = days[i].date;
+          break;
+        }
+      }
+
+      if (!prevMealDay) {
+        hideLoading();
+        showToast('找不到前一供餐日曆記錄。', 'warning');
+        return;
+      }
+
+      return callServer('apiGetClassMealEntry', [EntryCache.classId, prevMealDay]);
+    })
+    .then(function(res) {
+      hideLoading();
+      if (!res) return;
+
+      var prevExceptions = res.students.filter(function(s) { 
+        return s.is_manual_exception; 
+      });
+
+      var countApplied = 0;
+      EntryCache.roster.forEach(function(s) {
+        // 排除長期停餐
+        if (s.is_long_term_suspended) return;
+        
+        var matchedPrev = prevExceptions.filter(function(x) { return x.student_id === s.student_id; })[0];
+        if (matchedPrev) {
+          s.is_manual_exception = true;
+          s.exception_type = matchedPrev.exception_type;
+          s.exception_reason = matchedPrev.exception_reason;
+          countApplied++;
+        } else {
+          s.is_manual_exception = false;
+          s.exception_type = '';
+        }
+      });
+
+      renderEntryTable();
+      calculateEntryCounts();
+      showToast('已成功套用前一日 (' + res.date + ') 的請假登記共 ' + countApplied + ' 筆。', 'success');
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast('套用失敗: ' + err.message, 'error');
+    });
+}
+
+/**
+ * 快捷鍵：今日全班正常用餐
+ */
+function clearAllTodayDraftExceptions() {
+  EntryCache.roster.forEach(function(s) {
+    if (!s.is_long_term_suspended) {
+      s.is_manual_exception = false;
+      s.exception_type = '';
+      s.exception_reason = '';
+    }
+  });
+  renderEntryTable();
+  calculateEntryCounts();
+  showToast('已重設，今日全班預設正常供餐', 'success');
+}
+
+/**
+ * 收集有登記例外之名冊列
+ */
+function collectExceptions() {
+  var list = [];
+  EntryCache.roster.forEach(function(s) {
+    if (s.is_manual_exception) {
+      list.push({
+        student_id: s.student_id,
+        exception_type: s.exception_type,
+        reason: s.exception_reason
+      });
+    }
+  });
+  return list;
+}
+
+/**
+ * 暫存草稿
+ */
+function saveEntryDraft() {
+  showLoading('正在暫存草稿...');
+  var entries = collectExceptions();
+
+  callServer('apiSaveDraft', [EntryCache.classId, EntryCache.dateStr, entries])
+    .then(function(res) {
+      hideLoading();
+      showToast('草稿暫存成功', 'success');
+      loadDailyMealEntry();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 送出登記確認
+ */
+function submitEntryConfirm() {
+  if (!confirm('您確定已核對過本日請假名單並要送出確認嗎？確認後導師帳號將無法直接修改，如需修改須經由午餐管理員退回。')) return;
+
+  showLoading('正在送出登記確認...');
+  var entries = collectExceptions();
+
+  callServer('apiConfirmClassDay', [EntryCache.classId, EntryCache.dateStr, entries])
+    .then(function(res) {
+      hideLoading();
+      showToast('登記確認送出成功！', 'success');
+      loadDailyMealEntry();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+</script>
+
+<style>
+.active-filter {
+  font-weight: bold;
+}
+.exception-type-select, .exception-reason-input {
+  border: 1px solid var(--border-color);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+</style>

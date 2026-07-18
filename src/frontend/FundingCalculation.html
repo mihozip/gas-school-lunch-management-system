@@ -1,0 +1,186 @@
+<!-- FundingCalculation.html -->
+<div id="funding-calculation-view" class="subpage-view hidden">
+  <div class="view-header flex justify-between align-center">
+    <div>
+      <h2 class="view-title">💰 補助分攤計算 (Phase 5)</h2>
+      <p class="view-desc">依據餐數對帳結果與補助規則，執行各級機關的補助款項分攤與自付差額計費。</p>
+    </div>
+    <div class="flex gap-2 align-center">
+      <label for="funding-month-select" class="text-sm font-semibold">選擇月份：</label>
+      <input type="month" id="funding-month-select" class="form-control" style="width: 160px;">
+      <button id="btn-run-funding" class="btn btn-primary">⚡ 執行補助試算</button>
+    </div>
+  </div>
+
+  <!-- 運算狀態儀表板 -->
+  <div id="funding-dashboard" class="grid grid-cols-4 gap-4 my-4">
+    <div class="card status-card">
+      <div class="card-label">對帳與資料狀態</div>
+      <div id="funding-reconcile-status" class="card-value text-warning">讀取中...</div>
+    </div>
+    <div class="card status-card">
+      <div class="card-label">最新計算版本</div>
+      <div id="funding-calc-version" class="card-value">--</div>
+    </div>
+    <div class="card status-card">
+      <div class="card-label">運算異常數</div>
+      <div id="funding-issues-count" class="card-value text-danger">0 筆</div>
+    </div>
+    <div class="card status-card">
+      <div class="card-label">分攤學生餐數</div>
+      <div id="funding-meals-count" class="card-value">0 餐</div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-3 gap-4">
+    <!-- 左側：機關補助分攤預覽 -->
+    <div class="card col-span-2">
+      <h3 class="card-title">🏢 補助分攤彙整 (預覽)</h3>
+      <div class="table-responsive">
+        <table class="table" id="funding-sources-table">
+          <thead>
+            <tr>
+              <th>資金來源</th>
+              <th>對應計算規則類型</th>
+              <th>分攤總餐數</th>
+              <th class="text-right">分攤總金額 (元)</th>
+              <th class="text-right">尾差調整金額 (元)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="5" class="text-center text-muted">無資料，請先選擇月份並點擊「執行補助試算」。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 右側：就緒性檢驗與控制 -->
+    <div class="card">
+      <h3 class="card-title">✅ 就緒性檢核 (Readiness Check)</h3>
+      <ul class="list-unstyled" id="funding-readiness-list" style="line-height: 2;">
+        <li>⏳ 載入中...</li>
+      </ul>
+      <hr class="my-3">
+      <div class="flex flex-column gap-2">
+        <button id="btn-recalculate-funding" class="btn btn-secondary w-full" disabled>🔄 重新分攤計算</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    var monthInput = document.getElementById('funding-month-select');
+    var btnRun = document.getElementById('btn-run-funding');
+    var btnRecalc = document.getElementById('btn-recalculate-funding');
+
+    // 預設當前月份
+    var today = new Date();
+    var curMonthStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
+    monthInput.value = curMonthStr;
+
+    monthInput.addEventListener('change', loadFundingDashboard);
+    btnRun.addEventListener('click', runFundingCalculation);
+    btnRecalc.addEventListener('click', runFundingCalculation);
+
+    function loadFundingDashboard() {
+      var ym = monthInput.value;
+      if (!ym) return;
+
+      document.getElementById('funding-reconcile-status').innerText = '讀取中...';
+      document.getElementById('funding-readiness-list').innerHTML = '<li>⏳ 正在執行財務就緒性檢驗...</li>';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          // 更新狀態
+          var statusEl = document.getElementById('funding-reconcile-status');
+          statusEl.innerText = res.readiness.isReady ? '✅ 就緒' : '⚠️ 未就緒';
+          statusEl.className = 'card-value ' + (res.readiness.isReady ? 'text-success' : 'text-danger');
+
+          document.getElementById('funding-calc-version').innerText = 'v' + (res.version || '--');
+          document.getElementById('funding-issues-count').innerText = res.issuesCount + ' 筆';
+          document.getElementById('funding-meals-count').innerText = res.mealsCount + ' 餐';
+
+          btnRecalc.disabled = !res.readiness.isReady;
+
+          // 顯示就緒清單
+          var listEl = document.getElementById('funding-readiness-list');
+          listEl.innerHTML = '';
+          var checks = res.readiness.checks;
+          
+          addCheckItem(listEl, checks.noDuplicateSchoolDays, '日曆日期無重複');
+          addCheckItem(listEl, checks.hasMealReconciliationRun, '已執行餐數重算');
+          addCheckItem(listEl, checks.allClassesConfirmed, '全數班級已點名確認');
+          addCheckItem(listEl, checks.allAllocationsCompleted, '所有供餐日已分攤');
+          addCheckItem(listEl, checks.financialBalanced, '分攤金額借貸平衡');
+          addCheckItem(listEl, checks.blockingIssuesZero, '無阻斷性異常 (0)');
+
+          // 渲染表格
+          renderSourcesTable(res.sources);
+        })
+        .withFailureHandler(function(err) {
+          showNotification('載入就緒檢驗失敗: ' + err.message, 'danger');
+        })
+        .apiValidateClosing(ym);
+    }
+
+    function addCheckItem(parent, success, label) {
+      var li = document.createElement('li');
+      li.innerHTML = (success ? '<span class="text-success">✔</span> ' : '<span class="text-danger">✘</span> ') + label;
+      parent.appendChild(li);
+    }
+
+    function renderSourcesTable(sources) {
+      var tbody = document.querySelector('#funding-sources-table tbody');
+      tbody.innerHTML = '';
+      if (!sources || sources.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">目前無分攤明細，請執行試算。</td></tr>';
+        return;
+      }
+
+      var sourceNames = {
+        township: '公所補助款',
+        county: '縣府補助款',
+        school: '學校補助款',
+        self_pay: '學生自付額',
+        other: '其他外部資金'
+      };
+
+      sources.forEach(function(s) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td><b>' + (sourceNames[s.source] || s.source) + '</b></td>' +
+                     '<td>' + (s.type === 'percentage' ? '按費率比例分攤' : '固定金額補助') + '</td>' +
+                     '<td>' + s.meals + ' 餐</td>' +
+                     '<td class="text-right font-semibold">$' + s.amount.toFixed(2) + '</td>' +
+                     '<td class="text-right text-muted">$' + s.residual.toFixed(2) + '</td>';
+        tbody.appendChild(tr);
+      });
+    }
+
+    function runFundingCalculation() {
+      var ym = monthInput.value;
+      if (!ym) return;
+
+      showLoadingModal('正在執行補助分攤財務引擎，請稍候...');
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          hideLoadingModal();
+          showNotification('⚡ 補助分攤試算執行完畢！版號: v' + res.version + '，成功分攤 ' + res.allocationsCount + ' 筆明細。', 'success');
+          loadFundingDashboard();
+        })
+        .withFailureHandler(function(err) {
+          hideLoadingModal();
+          showNotification('運算失敗: ' + err.message, 'danger');
+        })
+        .apiCalculateMonthlyFunding(ym);
+    }
+
+    // 側邊選單切換監聽
+    window.addEventListener('hashchange', function() {
+      if (location.hash === '#funding-calculation') {
+        loadFundingDashboard();
+      }
+    });
+  })();
+</script>

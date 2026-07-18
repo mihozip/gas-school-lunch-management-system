@@ -1,0 +1,39 @@
+<!-- ApprovalWorkflow.html -->
+<div class="card">
+  <div class="card-title">✍️ 報表核章簽核工作流</div>
+  <p class="error-card-desc">
+    本模組提供午餐秘書、會計/主計、單位主管與校長進行報表正式發布前的內部簽核會章。
+  </p>
+
+  <div style="margin-top: 15px;">
+    <button class="btn btn-secondary" onclick="switchView('reports')">↩️ 返回報表中心</button>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title" id="workflowReportTitle">簽核報表資訊</div>
+  <div style="margin-top: 10px; background-color: var(--background-color); padding: 15px; border-radius: 6px;" id="workflowReportMeta">
+    <!-- Loaded dynamically -->
+  </div>
+
+  <div style="margin-top: 20px;">
+    <div class="form-group">
+      <label for="wfComment">簽核意見或留言：</label>
+      <textarea id="wfComment" class="form-control" rows="3" placeholder="請輸入簽核或退回之修正意見說明..."></textarea>
+    </div>
+    
+    <div style="margin-top: 15px; display: flex; gap: 8px;">
+      <button class="btn btn-primary" onclick="submitWfDecision('approved')">✅ 核可簽章</button>
+      <button class="btn btn-danger" onclick="submitWfDecision('rejected')">❌ 退回/駁回</button>
+    </div>
+  </div>
+</div>
+
+<!-- 簽核歷程時間軸 -->
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">核章歷程記錄</div>
+  <div style="margin-top: 15px;" id="wfTimelineContainer">
+    <!-- Timeline dynamic load -->
+    <p style="color: var(--text-muted);">尚無簽核記錄。</p>
+  </div>
+</div>

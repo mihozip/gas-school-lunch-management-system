@@ -1,0 +1,106 @@
+<!-- 學生名冊匯入精靈 - Step 3: Commit Result -->
+<div style="text-align: center; padding: 20px 0;">
+  
+  <div style="font-size: 3.5rem; color: var(--status-healthy); margin-bottom: 15px;">🎉</div>
+  <h3 style="margin-top: 0; margin-bottom: 10px; color: var(--primary-color);">資料匯入提交成功</h3>
+  <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 25px;">
+    批次作業已順利執行完成，學生名冊與對應的初始班級、補助身分歷程已成功寫入資料庫中。
+  </p>
+
+  <!-- 批次詳細內容面板 -->
+  <div class="card" style="text-align: left; max-width: 500px; margin: 0 auto 25px; padding: 20px;">
+    <h4 style="margin-top:0; border-bottom:1px solid var(--border-color); padding-bottom:8px; color: var(--text-main);">📊 提交批次明細</h4>
+    
+    <div class="status-panel" style="font-size: 0.9rem;">
+      <div class="status-row">
+        <span class="status-label">批次 ID</span>
+        <span class="status-value" id="resBatchId" style="font-family: monospace; font-size: 0.8rem;">-</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">原始檔案/來源</span>
+        <span class="status-value" id="resFilename">-</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">總資料列數</span>
+        <span class="status-value" id="resTotalRows" style="font-weight:bold;">0</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">新註冊學生 (CREATE)</span>
+        <span class="status-value" id="resCreateCount" style="color: var(--status-healthy); font-weight:bold;">0</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">更新學籍 (UPDATE)</span>
+        <span class="status-value" id="resUpdateCount" style="color: #3B82F6; font-weight:bold;">0</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">執行人員</span>
+        <span class="status-value" id="resStartedBy">-</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">作業時間</span>
+        <span class="status-value" id="resCompletedAt">-</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 管理員回復按鈕 -->
+  <div id="rollbackSection" style="display: none; margin-bottom: 25px;">
+    <div class="alert-box alert-warning" style="display:inline-block; max-width: 500px; text-align: left;">
+      <span>⚠️ <strong>管理員工具</strong>：如果您發現此批次匯入有誤，可點選下方按鈕撤銷本次匯入（將此批次新增的學生自動設定為停餐停用狀態）。</span>
+    </div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-danger" onclick="executeBatchRollback()" id="btnRollbackBatch">🔄 撤銷/回復此批次匯入</button>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" onclick="closeImportWizard()" style="padding: 10px 24px; font-size: 1rem;">完成並返回名冊</button>
+
+</div>
+
+<script>
+/**
+ * 載入並渲染匯入結果
+ */
+function renderImportResult(batchId) {
+  // 檢查是否為最高管理員以顯示撤銷區
+  if (App.user.role === 'system_admin') {
+    document.getElementById('rollbackSection').style.display = 'block';
+  } else {
+    document.getElementById('rollbackSection').style.display = 'none';
+  }
+
+  callServer('apiGetImportBatch', batchId)
+    .then(function(batch) {
+      document.getElementById('resBatchId').innerText = batch.import_batch_id;
+      document.getElementById('resFilename').innerText = batch.original_filename;
+      document.getElementById('resTotalRows').innerText = batch.total_rows;
+      document.getElementById('resCreateCount').innerText = batch.create_count;
+      document.getElementById('resUpdateCount').innerText = batch.update_count;
+      document.getElementById('resStartedBy').innerText = batch.started_by;
+      document.getElementById('resCompletedAt').innerText = batch.completed_at || batch.started_at;
+    })
+    .catch(function(err) {
+      showToast('載入批次明細失敗: ' + err.message, 'error');
+    });
+}
+
+/**
+ * 執行手動 Rollback 批次
+ */
+function executeBatchRollback() {
+  var batchId = document.getElementById('resBatchId').innerText;
+  if (!confirm('🛑 警告！您確定要撤銷此批次匯入嗎？這將會停用所有在此批次中新增的學生，且此操作不可逆！')) return;
+
+  showLoading('正在執行撤銷補償作業...');
+  callServer('rollbackBatch', batchId)
+    .then(function() {
+      hideLoading();
+      showToast('此批次匯入已被成功撤銷回復！', 'success');
+      closeImportWizard();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast('回復批次失敗: ' + err.message, 'error');
+    });
+}
+</script>

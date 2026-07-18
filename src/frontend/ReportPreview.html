@@ -1,0 +1,21 @@
+<!-- ReportPreview.html -->
+<div class="card">
+  <div class="card-title">🔍 補助報表即時預覽</div>
+  <p class="error-card-desc" id="previewDesc">
+    此處顯示的是即時生成的預覽報表。預覽報表將會印有「預覽文件－非正式申請資料」浮水印。
+  </p>
+  
+  <div style="margin-top: 15px; display: flex; gap: 8px;">
+    <button class="btn btn-secondary" onclick="switchView('reports')">↩️ 返回報表中心</button>
+    <a href="#" id="previewDownloadBtn" class="btn btn-primary" target="_blank" style="display: none;">📥 下載預覽 PDF</a>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">預覽文件畫面</div>
+  <div style="margin-top: 15px; height: 600px; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; background-color: var(--background-color);" id="previewFrameContainer">
+    <div style="display: flex; height: 100%; align-items: center; justify-content: center; color: var(--text-muted);">
+      正在準備 PDF 預覽，請稍候...
+    </div>
+  </div>
+</div>

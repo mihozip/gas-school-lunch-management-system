@@ -1,0 +1,348 @@
+<div class="card" id="calendarManagementView">
+  <div class="card-title">上課與供餐日曆管理</div>
+  
+  <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 20px; text-align: left;">
+    
+    <!-- 左側批次建立面板 -->
+    <div style="background-color: #f9fafb; border: 1px solid var(--border-color); padding: 18px; border-radius: 8px;">
+      <h3 style="margin-top:0; margin-bottom:15px; color:var(--primary-color); font-size:1.05rem;">📅 批次產生供餐日</h3>
+      
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">學年度 *</label>
+        <input type="number" id="calSchoolYear" value="115" style="width: 100%;">
+      </div>
+
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">學期 *</label>
+        <select id="calSemester" style="width:100%;">
+          <option value="1">第一學期 (1)</option>
+          <option value="2">第二學期 (2)</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">開始日期 *</label>
+        <input type="date" id="calStartDate" style="width: 100%;">
+      </div>
+
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">結束日期 *</label>
+        <input type="date" id="calEndDate" style="width: 100%;">
+      </div>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">預設每餐單價 *</label>
+        <input type="number" id="calDefaultPrice" value="60" style="width: 100%;">
+      </div>
+
+      <button class="btn btn-primary" onclick="generateSchoolDaysBatch()" style="width: 100%;">⚡ 批次產生 (自動剔除六日)</button>
+    </div>
+
+    <!-- 右側日曆網格與列表檢視 -->
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <div style="display:flex; gap:10px; align-items:center;">
+          <button class="btn btn-secondary" onclick="changeCalMonth(-1)">◀️ 上個月</button>
+          <h3 id="calendarCurrentMonthTitle" style="margin: 0; color: var(--primary-color);">2026 年 09 月</h3>
+          <button class="btn btn-secondary" onclick="changeCalMonth(1)">下個月 ▶️</button>
+        </div>
+        <div style="font-size:0.82rem; display:flex; gap:10px;">
+          <span style="display:inline-block; width:12px; height:12px; background:#bfdbfe; border-radius:3px;"></span> 供餐日
+          <span style="display:inline-block; width:12px; height:12px; background:#fecaca; border-radius:3px;"></span> 不供餐
+          <span style="display:inline-block; width:12px; height:12px; background:#fef08a; border-radius:3px;"></span> 補課補餐
+        </div>
+      </div>
+
+      <!-- 月曆網格 -->
+      <div id="calendarGrid" style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; background-color: var(--border-color); border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; padding: 5px;">
+        <!-- 由 JS 動態生成 -->
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- 編輯單日 Modal 對話框 -->
+<div class="modal" id="calDayModal" style="display:none;">
+  <div class="modal-content" style="max-width: 450px;">
+    <span class="modal-close" onclick="closeCalDayModal()">&times;</span>
+    <h3 id="calDayModalTitle" style="margin-top: 0; margin-bottom: 20px; color: var(--primary-color);">修改日期供餐設定</h3>
+
+    <input type="hidden" id="calFormDate">
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">是否供餐？ *</label>
+      <select id="calFormIsMealDay" style="width: 100%;">
+        <option value="true">🟢 供餐 (is_meal_day = TRUE)</option>
+        <option value="false">🔴 不供餐 (is_meal_day = FALSE)</option>
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">當日單餐價格 *</label>
+      <input type="number" id="calFormPrice" style="width: 100%;">
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">日期類型 *</label>
+      <select id="calFormDayType" style="width: 100%;">
+        <option value="regular">一般上課日 (regular)</option>
+        <option value="holiday">國定假日 (holiday)</option>
+        <option value="weekend">週末例假日 (weekend)</option>
+        <option value="make_up_day">補班補餐日 (make_up_day)</option>
+        <option value="typhoon">颱風假 (typhoon)</option>
+        <option value="school_event">學校活動無餐 (school_event)</option>
+        <option value="vacation">寒暑假 (vacation)</option>
+        <option value="no_meal">不供餐日 (no_meal)</option>
+        <option value="other">其他 (other)</option>
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">說明描述</label>
+      <input type="text" id="calFormDescription" placeholder="如：颱風假停課、運動會補假" style="width: 100%;">
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+      <button class="btn btn-secondary" onclick="closeCalDayModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitCalDayForm()">儲存日期變更</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var CalState = {
+  currentYear: 2026,
+  currentMonth: 9, // 1-indexed (1-12)
+  daysData: {} // dateStr -> schoolDay record
+};
+
+/**
+ * 初始化日曆視圖
+ */
+function initCalendarManagementView() {
+  // 設定預設區間為當前月份
+  var now = new Date();
+  CalState.currentYear = now.getFullYear();
+  CalState.currentMonth = now.getMonth() + 1;
+
+  var firstDay = CalState.currentYear + '-' + Utils.padZero(CalState.currentMonth) + '-01';
+  var lastDay = CalState.currentYear + '-' + Utils.padZero(CalState.currentMonth) + '-' + new Date(CalState.currentYear, CalState.currentMonth, 0).getDate();
+
+  document.getElementById('calStartDate').value = firstDay;
+  document.getElementById('calEndDate').value = lastDay;
+
+  loadCalendarData();
+}
+
+/**
+ * 載入當月日曆
+ */
+function loadCalendarData() {
+  showLoading('載入日曆數據中...');
+  
+  callServer('apiListSchoolDays', { school_year: 115 })
+    .then(function(days) {
+      hideLoading();
+      CalState.daysData = {};
+      days.forEach(function(d) {
+        CalState.daysData[d.date] = d;
+      });
+      renderCalendarGrid();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+function changeCalMonth(offset) {
+  CalState.currentMonth += offset;
+  if (CalState.currentMonth > 12) {
+    CalState.currentMonth = 1;
+    CalState.currentYear++;
+  } else if (CalState.currentMonth < 1) {
+    CalState.currentMonth = 12;
+    CalState.currentYear--;
+  }
+  renderCalendarGrid();
+}
+
+/**
+ * 繪製月曆網格
+ */
+function renderCalendarGrid() {
+  var grid = document.getElementById('calendarGrid');
+  grid.innerHTML = '';
+
+  document.getElementById('calendarCurrentMonthTitle').innerText = CalState.currentYear + ' 年 ' + Utils.padZero(CalState.currentMonth) + ' 月';
+
+  // 星期標題
+  var weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+  weekDays.forEach(function(w) {
+    var cell = document.createElement('div');
+    cell.style.fontWeight = 'bold';
+    cell.style.backgroundColor = '#f3f4f6';
+    cell.style.padding = '8px';
+    cell.innerText = w;
+    grid.appendChild(cell);
+  });
+
+  // 計算當月第一天星期與當月總天數
+  var firstDayObj = new Date(CalState.currentYear, CalState.currentMonth - 1, 1);
+  var startDayOfWeek = firstDayObj.getDay();
+  var daysInMonth = new Date(CalState.currentYear, CalState.currentMonth, 0).getDate();
+
+  // 填充空白單元格
+  for (var i = 0; i < startDayOfWeek; i++) {
+    var cell = document.createElement('div');
+    cell.style.backgroundColor = 'transparent';
+    grid.appendChild(cell);
+  }
+
+  // 繪製日期單元格
+  for (var d = 1; d <= daysInMonth; d++) {
+    var dateStr = CalState.currentYear + '-' + Utils.padZero(CalState.currentMonth) + '-' + Utils.padZero(d);
+    var dayRecord = CalState.daysData[dateStr];
+
+    var cell = document.createElement('div');
+    cell.style.padding = '10px 5px';
+    cell.style.borderRadius = '4px';
+    cell.style.cursor = 'pointer';
+    cell.style.position = 'relative';
+    cell.style.minHeight = '65px';
+    cell.style.display = 'flex';
+    cell.style.flexDirection = 'column';
+    cell.style.justifyContent = 'space-between';
+
+    var dateNumSpan = document.createElement('span');
+    dateNumSpan.innerText = d;
+    dateNumSpan.style.fontWeight = 'bold';
+    cell.appendChild(dateNumSpan);
+
+    if (dayRecord) {
+      var isMeal = (dayRecord.is_meal_day === true || dayRecord.is_meal_day === 'TRUE');
+      
+      // 依類型塗上背景
+      if (isMeal) {
+        if (dayRecord.day_type === 'make_up_day') {
+          cell.style.backgroundColor = '#fef08a'; // 補餐日黃色
+        } else {
+          cell.style.backgroundColor = '#bfdbfe'; // 供餐日藍色
+        }
+      } else {
+        cell.style.backgroundColor = '#fecaca'; // 不供餐紅色
+      }
+
+      var infoSpan = document.createElement('span');
+      infoSpan.style.fontSize = '0.7rem';
+      infoSpan.style.color = '#374151';
+      infoSpan.innerText = isMeal ? '$' + dayRecord.meal_price : (dayRecord.day_type === 'typhoon' ? '🌀颱風' : '✖️無餐');
+      cell.appendChild(infoSpan);
+
+      // 如果有 locked 標示
+      if (dayRecord.locked === true || dayRecord.locked === 'TRUE') {
+        var lockIcon = document.createElement('span');
+        lockIcon.innerText = '🔒';
+        lockIcon.style.position = 'absolute';
+        lockIcon.style.top = '3px';
+        lockIcon.style.right = '3px';
+        lockIcon.style.fontSize = '0.65rem';
+        cell.appendChild(lockIcon);
+      }
+
+      cell.onclick = (function(rec) {
+        return function() { openCalDayModal(rec); };
+      })(dayRecord);
+
+    } else {
+      cell.style.backgroundColor = '#f3f4f6';
+      cell.style.color = '#9ca3af';
+      var infoSpan = document.createElement('span');
+      infoSpan.style.fontSize = '0.7rem';
+      infoSpan.innerText = '未建';
+      cell.appendChild(infoSpan);
+      
+      cell.onclick = (function(ds) {
+        return function() {
+          showToast('此日期尚未建立日曆，請先於左側批次產生日曆。', 'warning');
+        };
+      })(dateStr);
+    }
+
+    grid.appendChild(cell);
+  }
+}
+
+/**
+ * 批次產生供餐日
+ */
+function generateSchoolDaysBatch() {
+  var start = document.getElementById('calStartDate').value;
+  var end = document.getElementById('calEndDate').value;
+  var yr = document.getElementById('calSchoolYear').value;
+  var sem = document.getElementById('calSemester').value;
+  var price = document.getElementById('calDefaultPrice').value;
+
+  if (!start || !end) {
+    showToast('請指定開始與結束日期！', 'warning');
+    return;
+  }
+
+  showLoading('正在批次產生供餐日曆中...');
+  
+  callServer('apiBatchCreateSchoolDays', [start, end, yr, sem, price])
+    .then(function(res) {
+      hideLoading();
+      showToast('供餐日曆產生完成！建立：' + res.created + ' 筆，跳過已存在：' + res.skipped + ' 筆。', 'success');
+      loadCalendarData();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+function openCalDayModal(rec) {
+  document.getElementById('calFormDate').value = rec.date;
+  document.getElementById('calDayModalTitle').innerText = '編輯日期供餐：' + rec.date;
+  
+  document.getElementById('calFormIsMealDay').value = String(rec.is_meal_day);
+  document.getElementById('calFormPrice').value = rec.meal_price;
+  document.getElementById('calFormDayType').value = rec.day_type;
+  document.getElementById('calFormDescription').value = rec.description || '';
+
+  document.getElementById('calDayModal').style.display = 'flex';
+}
+
+function closeCalDayModal() {
+  document.getElementById('calDayModal').style.display = 'none';
+}
+
+/**
+ * 提交單日變更
+ */
+function submitCalDayForm() {
+  var dateStr = document.getElementById('calFormDate').value;
+  var payload = {
+    is_meal_day: document.getElementById('calFormIsMealDay').value === 'true',
+    meal_price: parseFloat(document.getElementById('calFormPrice').value) || 0,
+    day_type: document.getElementById('calFormDayType').value,
+    description: document.getElementById('calFormDescription').value
+  };
+
+  showLoading('正在儲存變更...');
+
+  callServer('apiUpdateSchoolDay', [dateStr, payload])
+    .then(function() {
+      hideLoading();
+      showToast('日期儲存成功！', 'success');
+      closeCalDayModal();
+      loadCalendarData();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+</script>

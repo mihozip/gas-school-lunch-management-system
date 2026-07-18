@@ -1,0 +1,272 @@
+<div class="card" id="lunchDashboardView">
+  <div class="card-title">每日用餐登記完成狀況儀表板 (管理端)</div>
+
+  <!-- 頂部過濾控制列 -->
+  <div style="display: flex; gap: 15px; margin-bottom: 20px; text-align: left; align-items: center; justify-content: space-between;">
+    <div>
+      <label style="font-weight: bold; margin-right: 10px;">檢視日期</label>
+      <input type="date" id="dashDate" onchange="loadDashboardData()" style="padding: 6px 12px;">
+    </div>
+    <div style="background-color: var(--primary-bg); padding: 8px 15px; border-radius: 6px; font-size: 0.9rem; border: 1px solid rgba(16,185,129,0.2);">
+      💡 <b>提示</b>：僅 is_meal_day = TRUE 的供餐日才需登記點名。本頁面提供即時的全校完成狀況統計與餐數預估。
+    </div>
+  </div>
+
+  <!-- 統計儀表圖卡列 -->
+  <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; text-align: center;">
+    <div class="card" style="padding: 12px; margin-bottom: 0; border-top: 4px solid var(--primary-light);">
+      <div style="font-size:0.8rem; color:var(--text-muted);">應登記班級數</div>
+      <div style="font-size:1.6rem; font-weight:bold; color:var(--text-main);" id="dashTotalClasses">0</div>
+    </div>
+    <div class="card" style="padding: 12px; margin-bottom: 0; border-top: 4px solid var(--status-healthy);">
+      <div style="font-size:0.8rem; color:var(--text-muted);">已完成確認</div>
+      <div style="font-size:1.6rem; font-weight:bold; color:var(--status-healthy);" id="dashConfirmedClasses">0</div>
+    </div>
+    <div class="card" style="padding: 12px; margin-bottom: 0; border-top: 4px solid var(--status-warning);">
+      <div style="font-size:0.8rem; color:var(--text-muted);">登記中/退回重開</div>
+      <div style="font-size:1.6rem; font-weight:bold; color:var(--status-warning);" id="dashPendingClasses">0</div>
+    </div>
+    <div class="card" style="padding: 12px; margin-bottom: 0; border-top: 4px solid var(--status-blocking);">
+      <div style="font-size:0.8rem; color:var(--text-muted);">異常班級數</div>
+      <div style="font-size:1.6rem; font-weight:bold; color:var(--status-blocking);" id="dashAnomalies">0</div>
+    </div>
+    <div class="card" style="padding: 12px; margin-bottom: 0; border-top: 4px solid var(--primary-color); background: var(--primary-bg);">
+      <div style="font-size:0.8rem; color:var(--text-muted);">全校完成率</div>
+      <div style="font-size:1.6rem; font-weight:bold; color:var(--primary-color);" id="dashRate">0%</div>
+    </div>
+  </div>
+
+  <!-- 用餐數量看板 -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 25px; text-align: center;">
+    <div style="background-color: #f8fafc; border: 1px solid var(--border-color); padding: 12px; border-radius: 8px;">
+      <span style="font-size: 0.82rem; color: var(--text-muted); display:block;">預估全校用餐總餐數</span>
+      <span style="font-size: 1.8rem; font-weight: bold; color: var(--primary-color);" id="dashEstMeals">0</span>
+    </div>
+    <div style="background-color: #f8fafc; border: 1px solid var(--border-color); padding: 12px; border-radius: 8px;">
+      <span style="font-size: 0.82rem; color: var(--text-muted); display:block;">累計長期停餐扣餐數</span>
+      <span style="font-size: 1.8rem; font-weight: bold; color: var(--status-warning);" id="dashSuspensions">0</span>
+    </div>
+    <div style="background-color: #f8fafc; border: 1px solid var(--border-color); padding: 12px; border-radius: 8px;">
+      <span style="font-size: 0.82rem; color: var(--text-muted); display:block;">累計手動登記請假數</span>
+      <span style="font-size: 1.8rem; font-weight: bold; color: var(--status-blocking);" id="dashManualExceptions">0</span>
+    </div>
+  </div>
+
+  <!-- 班級列表點名狀態表格 -->
+  <div style="overflow-x: auto;">
+    <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
+      <thead>
+        <tr>
+          <th>班級名稱</th>
+          <th>導師姓名</th>
+          <th>班級總人數</th>
+          <th>長期停餐數</th>
+          <th>登記未用餐</th>
+          <th>預估實到餐數</th>
+          <th>點名狀態</th>
+          <th>最後更新時間</th>
+          <th>異常警示</th>
+          <th>管理操作</th>
+        </tr>
+      </thead>
+      <tbody id="dashTableBody">
+        <tr>
+          <td colspan="10" style="text-align: center; color: var(--text-muted);">正在讀取各班完成狀態...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 檢視班級點名歷程 Modal -->
+<div class="modal" id="confHistoryModal" style="display:none;">
+  <div class="modal-content" style="max-width: 500px;">
+    <span class="modal-close" onclick="closeConfHistoryModal()">&times;</span>
+    <h3 style="margin-top: 0; margin-bottom: 20px; color: var(--primary-color);">班級點名狀態轉移歷程</h3>
+    <table class="table" style="width: 100%; font-size: 0.82rem; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th>動作</th>
+          <th>原狀態</th>
+          <th>新狀態</th>
+          <th>原因備註</th>
+          <th>執行人員</th>
+          <th>執行時間</th>
+        </tr>
+      </thead>
+      <tbody id="confHistoryTableBody"></tbody>
+    </table>
+    <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+      <button class="btn btn-secondary" onclick="closeConfHistoryModal()">關閉</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/**
+ * 初始化 Dashboard 視圖
+ */
+function initLunchDashboardView() {
+  document.getElementById('dashDate').value = Utils.formatDate(new Date());
+  loadDashboardData();
+}
+
+/**
+ * 載入當日數據
+ */
+function loadDashboardData() {
+  var dateStr = document.getElementById('dashDate').value;
+  if (!dateStr) return;
+
+  showLoading('載入儀表板數據中...');
+  
+  callServer('apiGetClassConfirmationsDashboard', dateStr)
+    .then(function(res) {
+      hideLoading();
+      
+      // 更新統計
+      document.getElementById('dashTotalClasses').innerText = res.total_classes;
+      document.getElementById('dashConfirmedClasses').innerText = res.confirmed_classes;
+      document.getElementById('dashPendingClasses').innerText = res.draft_classes + res.reopened_classes;
+      document.getElementById('dashAnomalies').innerText = res.anomalies_count;
+      document.getElementById('dashRate').innerText = res.completion_rate + '%';
+      
+      document.getElementById('dashEstMeals').innerText = res.estimated_school_meals;
+      document.getElementById('dashSuspensions').innerText = res.total_suspensions;
+      document.getElementById('dashManualExceptions').innerText = res.total_manual_exceptions;
+
+      // 填入表格
+      var tbody = document.getElementById('dashTableBody');
+      tbody.innerHTML = '';
+
+      if (res.classes_list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">無任何啟用的班級資料。</td></tr>';
+        return;
+      }
+
+      res.classes_list.forEach(function(c) {
+        var tr = document.createElement('tr');
+        
+        var statusBadge = '';
+        if (c.confirm_status === 'confirmed') statusBadge = '<span class="badge badge-healthy">已確認 (confirmed)</span>';
+        else if (c.confirm_status === 'draft') statusBadge = '<span class="badge badge-secondary">暫存草稿 (draft)</span>';
+        else if (c.confirm_status === 'reopened') statusBadge = '<span class="badge badge-warning">退回重開 (reopened)</span>';
+        else if (c.confirm_status === 'locked') statusBadge = '<span class="badge badge-blocking">已鎖定 (locked)</span>';
+        else statusBadge = '<span class="badge badge-secondary">未開始 (not_started)</span>';
+
+        // 異常警告
+        var anomalyHtml = c.anomaly_reason 
+          ? '<span style="color:var(--status-blocking); font-weight:bold;">⚠️ ' + escapeHtml(c.anomaly_reason) + '</span>' 
+          : '<span style="color:var(--status-healthy);">正常</span>';
+
+        // 操作鈕
+        var actionsHtml = '';
+        if (App.user.role === 'system_admin' || App.user.role === 'lunch_admin') {
+          if (c.confirm_status === 'confirmed') {
+            actionsHtml += '<button class="btn btn-danger" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" onclick="reopenClassDayPrompt(\'' + c.class_id + '\')">退回修改</button>';
+          }
+          if (c.confirm_status !== 'not_started') {
+            // 由於非 not_started 就有 confirmation 紀錄，即可看歷程
+            actionsHtml += '<button class="btn btn-secondary" style="font-size:0.75rem; padding:4px 8px;" onclick="viewConfirmationHistory(\'' + c.class_id + '\')">歷程</button>';
+          }
+        } else {
+          actionsHtml = '<span style="color:var(--text-muted); font-size:0.8rem;">唯讀</span>';
+        }
+
+        tr.innerHTML = 
+          '<td>' + escapeHtml(c.class_name) + '</td>' +
+          '<td>' + escapeHtml(c.teacher_name || '-') + '</td>' +
+          '<td>' + c.students_count + '</td>' +
+          '<td>' + c.suspensions_count + '</td>' +
+          '<td>' + c.manual_exceptions_count + '</td>' +
+          '<td>' + c.estimated_meals + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>' + escapeHtml(c.updated_at || '-') + '</td>' +
+          '<td>' + anomalyHtml + '</td>' +
+          '<td>' + actionsHtml + '</td>';
+        
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 點名重開退回
+ */
+function reopenClassDayPrompt(classId) {
+  var reason = prompt('請輸入退回重新登記的原因事由：');
+  if (!reason) {
+    showToast('退回原因為必填，退回重開作業已終止。', 'warning');
+    return;
+  }
+
+  showLoading('正在執行退回重新開放作業...');
+  var dateStr = document.getElementById('dashDate').value;
+
+  callServer('apiReopenClassDay', [classId, dateStr, reason])
+    .then(function() {
+      hideLoading();
+      showToast('班級已成功重開，導師將可重新進行修改。', 'success');
+      loadDashboardData();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 查看點名歷史歷程
+ */
+function viewConfirmationHistory(classId) {
+  var dateStr = document.getElementById('dashDate').value;
+  showLoading('載入歷史歷程中...');
+  
+  // 取得確認單 PK
+  callServer('apiGetClassMealEntry', [classId, dateStr])
+    .then(function(res) {
+      if (!res.confirmation || !res.confirmation.confirmation_id) {
+        throw new Error('此日期該班級尚無確認歷程。');
+      }
+      return callServer('apiGetConfirmationHistory', res.confirmation.confirmation_id);
+    })
+    .then(function(history) {
+      hideLoading();
+      document.getElementById('confHistoryModal').style.display = 'flex';
+      
+      var tbody = document.getElementById('confHistoryTableBody');
+      tbody.innerHTML = '';
+
+      if (history.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">無歷程資料。</td></tr>';
+        return;
+      }
+
+      var actionNames = { create_draft: '暫存草稿', confirm: '確認點名', reconfirm: '重送確認', reopen: '解鎖重開', lock: '月結鎖定' };
+
+      history.forEach(function(h) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = 
+          '<td>' + (actionNames[h.action] || h.action) + '</td>' +
+          '<td>' + h.before_status + '</td>' +
+          '<td>' + h.after_status + '</td>' +
+          '<td>' + escapeHtml(h.reason || '-') + '</td>' +
+          '<td>' + escapeHtml(h.acted_by) + '</td>' +
+          '<td>' + h.acted_at + '</td>';
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+function closeConfHistoryModal() {
+  document.getElementById('confHistoryModal').style.display = 'none';
+}
+</script>

@@ -1,0 +1,233 @@
+<div class="card" id="statusCard">
+  <div class="card-title">系統狀態儀表板</div>
+  
+  <!-- 整體健康狀態標籤 -->
+  <div style="margin-bottom: 24px; text-align: left;">
+    <span style="font-size: 0.95rem; font-weight: bold; margin-right: 10px;">系統運作狀態：</span>
+    <span id="statusLevelBadge" class="badge">讀取中...</span>
+  </div>
+
+  <!-- 阻斷性問題警示區 -->
+  <div id="blockingAlertsContainer" style="display:none;"></div>
+  
+  <!-- 警告性問題警示區 -->
+  <div id="warningAlertsContainer" style="display:none;"></div>
+
+  <!-- 核心檢測網格 -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; text-align: left;">
+    
+    <!-- 模組 A: 資料庫健康度 -->
+    <div class="card" style="margin-bottom:0; padding: 20px;">
+      <h3 style="font-size: 1rem; font-weight:bold; margin-bottom: 15px; color: var(--primary-color);">📂 資料表完整性檢測</h3>
+      <div class="status-panel" id="sheetsStatusList">
+        <div style="color: var(--text-muted);">正在載入工作表結構...</div>
+      </div>
+    </div>
+
+    <!-- 模組 B: 系統與時區設定 -->
+    <div class="card" style="margin-bottom:0; padding: 20px;">
+      <h3 style="font-size: 1rem; font-weight:bold; margin-bottom: 15px; color: var(--primary-color);">⚙️ 系統參數與環境</h3>
+      <div class="status-panel">
+        
+        <div class="status-row">
+          <span class="status-label">資料庫連線 ID</span>
+          <span class="status-value" id="dbIdText" style="font-family: monospace; font-size: 0.8rem;">讀取中...</span>
+        </div>
+        
+        <div class="status-row">
+          <span class="status-label">Schema 版本</span>
+          <span class="status-value" id="schemaVerText">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">Script 時區</span>
+          <span class="status-value" id="scriptTzText">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">試算表時區</span>
+          <span class="status-value" id="ssTzText">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">時區設定檢驗</span>
+          <span class="status-value" id="tzMatchText">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">報表資料夾寫入</span>
+          <span class="status-value" id="folderWriteText">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">補助身分類別</span>
+          <span class="status-value" id="subsidyCatCount">讀取中...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模組 C: 自動排程與 Trigger 管理 -->
+    <div class="card" style="margin-bottom:0; padding: 20px;">
+      <h3 style="font-size: 1rem; font-weight:bold; margin-bottom: 15px; color: var(--primary-color);">⏰ 自動排程與 Trigger 管理</h3>
+      <div class="status-panel">
+        <div class="status-row">
+          <span class="status-label">排程觸發狀態</span>
+          <span class="status-value" id="triggerStatusBadge">讀取中...</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label">觸發處理函式</span>
+          <span class="status-value" style="font-family: monospace; font-size: 0.8rem;">runScheduledDailyCalculation</span>
+        </div>
+        
+        <div style="margin-top: 20px; display: flex; gap: 8px;">
+          <button class="btn btn-primary btn-sm" id="btnEnableTrigger" onclick="toggleTrigger(true)">啟用定時統計排程</button>
+          <button class="btn btn-danger btn-sm" id="btnDisableTrigger" onclick="toggleTrigger(false)" style="display:none;">停用定時統計排程</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/**
+ * 載入並渲染系統狀態
+ */
+function loadSystemStatus() {
+  callServer('apiGetSystemStatus')
+    .then(function(status) {
+      // 1. 更新整體健康度 Badge
+      var levelBadge = document.getElementById('statusLevelBadge');
+      levelBadge.className = 'badge';
+      
+      if (status.statusLevel === 'healthy') {
+        levelBadge.classList.add('badge-healthy');
+        levelBadge.innerText = '健康 (Healthy)';
+      } else if (status.statusLevel === 'warning') {
+        levelBadge.classList.add('badge-warning');
+        levelBadge.innerText = '警告 (Warning)';
+      } else {
+        levelBadge.classList.add('badge-blocking');
+        levelBadge.innerText = '阻斷性異常 (Blocking)';
+      }
+
+      // 2. 渲染阻斷性與警告訊息
+      var blockingContainer = document.getElementById('blockingAlertsContainer');
+      if (status.blockingIssues.length > 0) {
+        blockingContainer.style.display = 'block';
+        blockingContainer.innerHTML = status.blockingIssues.map(function(issue) {
+          return '<div class="alert-box alert-blocking"><span>🛑 <strong>阻斷問題</strong>：' + escapeHtml(issue) + '</span></div>';
+        }).join('');
+      } else {
+        blockingContainer.style.display = 'none';
+      }
+
+      var warningContainer = document.getElementById('warningAlertsContainer');
+      if (status.warnings.length > 0) {
+        warningContainer.style.display = 'block';
+        warningContainer.innerHTML = status.warnings.map(function(warn) {
+          return '<div class="alert-box alert-warning"><span>⚠️ <strong>系統警告</strong>：' + escapeHtml(warn) + '</span></div>';
+        }).join('');
+      } else {
+        warningContainer.style.display = 'none';
+      }
+
+      // 3. 渲染工作表結構檢測
+      var sheetsList = document.getElementById('sheetsStatusList');
+      sheetsList.innerHTML = '';
+      
+      Object.keys(status.sheetsStatus).forEach(function(sheetName) {
+        var info = status.sheetsStatus[sheetName];
+        var row = document.createElement('div');
+        row.className = 'status-row';
+        
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'status-label';
+        nameSpan.innerText = sheetName;
+        row.appendChild(nameSpan);
+
+        var valSpan = document.createElement('span');
+        valSpan.className = 'status-value';
+        
+        if (!info.exists) {
+          valSpan.innerHTML = '<span class="badge badge-blocking">缺失</span>';
+        } else if (!info.headersOk) {
+          valSpan.innerHTML = '<span class="badge badge-warning">欄位不全</span>';
+        } else {
+          valSpan.innerHTML = '<span class="badge badge-healthy">正常</span>';
+        }
+        row.appendChild(valSpan);
+        sheetsList.appendChild(row);
+      });
+
+      // 4. 更新參數面板
+      document.getElementById('schemaVerText').innerText = '預期 ' + status.schemaVersion.current + ' / 已裝 ' + status.schemaVersion.installed;
+      document.getElementById('scriptTzText').innerText = status.timezoneCheck.scriptTimeZone;
+      document.getElementById('ssTzText').innerText = status.timezoneCheck.spreadsheetTimeZone;
+      document.getElementById('tzMatchText').innerHTML = status.timezoneCheck.matches 
+        ? '<span class="badge badge-healthy">符合 (Taipei)</span>' 
+        : '<span class="badge badge-warning">不符 (非 Taipei)</span>';
+      
+      document.getElementById('folderWriteText').innerHTML = status.folderStatus.writable 
+        ? '<span class="badge badge-healthy">可寫入</span>' 
+        : '<span class="badge badge-blocking">寫入受限</span>';
+
+      // 異步填寫試算表 ID 快取與資料庫名稱
+      google.script.run.withSuccessHandler(function(id) {
+        document.getElementById('dbIdText').innerText = id ? id.substring(0, 15) + '...' : '未設定';
+      }).DATABASE_SPREADSHEET_ID_TEMP = ''; 
+      
+      // 直接呼叫 Properties 讀取
+      callServer('apiGetAuthorizationDiagnostic').then(function(diag) {
+        document.getElementById('dbIdText').innerText = diag.spreadsheetTimeZone !== 'N/A' ? '連線成功' : '連線失敗';
+      });
+
+      // 5. 讀取定時 Trigger 狀態
+      loadTriggerStatus();
+
+    })
+    .catch(function(err) {
+      showToast('載入系統狀態失敗: ' + err.message, 'error');
+    });
+}
+
+function loadTriggerStatus() {
+  callServer('apiGetTriggerStatus').then(function(res) {
+    var badge = document.getElementById('triggerStatusBadge');
+    var btnEnable = document.getElementById('btnEnableTrigger');
+    var btnDisable = document.getElementById('btnDisableTrigger');
+    
+    if (res.active) {
+      badge.innerHTML = '<span class="badge badge-healthy">已啟用 (Active)</span>';
+      btnEnable.style.display = 'none';
+      btnDisable.style.display = 'inline-block';
+    } else {
+      badge.innerHTML = '<span class="badge badge-warning">未啟用 (Inactive)</span>';
+      btnEnable.style.display = 'inline-block';
+      btnDisable.style.display = 'none';
+    }
+  });
+}
+
+function toggleTrigger(enable) {
+  if (enable) {
+    // 檢查是否有阻斷問題
+    callServer('apiGetSystemStatus').then(function(status) {
+      if (status.blockingIssues && status.blockingIssues.length > 0) {
+        showToast('🛑 啟用失敗：必須先解決所有系統阻斷性異常後才能啟用排程！', 'error');
+        return;
+      }
+      
+      callServer('apiInstallDailyCalculationTrigger').then(function() {
+        showToast('定時排程統計已成功啟用！', 'success');
+        loadTriggerStatus();
+      });
+    });
+  } else {
+    callServer('apiRemoveDailyCalculationTrigger').then(function() {
+      showToast('定時排程統計已成功關閉。', 'success');
+      loadTriggerStatus();
+    });
+  }
+}
+</script>

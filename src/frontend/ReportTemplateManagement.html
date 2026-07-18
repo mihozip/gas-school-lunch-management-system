@@ -1,0 +1,100 @@
+<!-- ReportTemplateManagement.html -->
+<div class="card">
+  <div class="card-title">🎨 報表範本規格與隱私版本管理</div>
+  <p class="error-card-desc">
+    本模組提供系統管理員建立、審查及核准報表範本，並定義個別範本的隱私過濾級別。
+  </p>
+
+  <div style="margin-top: 15px; display: flex; gap: 8px;">
+    <button class="btn btn-primary" onclick="showCreateTemplateDialog()">➕ 新增範本規格</button>
+    <button class="btn btn-secondary" onclick="switchView('reports')">↩️ 回到報表中心</button>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">報表範本清單</div>
+  <div class="table-responsive" style="margin-top: 15px;">
+    <table class="data-table" id="templateListTable">
+      <thead>
+        <tr>
+          <th>範本ID</th>
+          <th>報表類型</th>
+          <th>範本名稱</th>
+          <th>版本</th>
+          <th>格式</th>
+          <th>隱私等級</th>
+          <th>狀態</th>
+          <th>建立時間</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="templateListBody">
+        <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">正在載入範本...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 新增範本對話框 -->
+<div class="modal" id="createTemplateModal" style="display: none;">
+  <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-header">
+      <div class="modal-title">新增報表範本規格</div>
+      <span class="modal-close" onclick="closeCreateTemplateDialog()">&times;</span>
+    </div>
+    
+    <div style="margin-top: 15px;">
+      <div class="form-group">
+        <label for="tplType">報表類型：</label>
+        <select id="tplType" class="form-control">
+          <option value="DAILY_SCHOOL_MEAL_SUMMARY">DAILY_SCHOOL_MEAL_SUMMARY (全校每日用餐統計)</option>
+          <option value="DAILY_CLASS_MEAL_SUMMARY">DAILY_CLASS_MEAL_SUMMARY (各班每日用餐統計)</option>
+          <option value="MONTHLY_MEAL_SUMMARY">MONTHLY_MEAL_SUMMARY (每月餐數統計)</option>
+          <option value="GENERAL_STUDENT_FUNDING_DETAIL">GENERAL_STUDENT_FUNDING_DETAIL (一般學生補助明細)</option>
+          <option value="SPECIAL_STUDENT_FUNDING_DETAIL">SPECIAL_STUDENT_FUNDING_DETAIL (特殊學生補助明細)</option>
+          <option value="TOWNSHIP_FUNDING_APPLICATION">TOWNSHIP_FUNDING_APPLICATION (公所補助申請表)</option>
+          <option value="COUNTY_FUNDING_APPLICATION">COUNTY_FUNDING_APPLICATION (縣府補助申請表)</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-top: 12px;">
+        <label for="tplName">範本名稱：</label>
+        <input type="text" id="tplName" class="form-control" placeholder="例如：115學年度通用版範本" />
+      </div>
+
+      <div class="form-group" style="margin-top: 12px;">
+        <label for="tplFormat">範本格式：</label>
+        <select id="tplFormat" class="form-control">
+          <option value="HTML">HTML (標準網頁及PDF轉檔)</option>
+          <option value="GOOGLE_DOCS">GOOGLE_DOCS</option>
+          <option value="GOOGLE_SHEETS">GOOGLE_SHEETS</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-top: 12px;">
+        <label for="tplFileId">範本檔案 ID (Google Drive File ID)：</label>
+        <input type="text" id="tplFileId" class="form-control" placeholder="非HTML格式時必填" />
+      </div>
+
+      <div class="form-group" style="margin-top: 12px;">
+        <label for="tplPrivacy">隱私防護等級：</label>
+        <select id="tplPrivacy" class="form-control">
+          <option value="PUBLIC_SUMMARY">PUBLIC_SUMMARY (去識別化不含姓名學號)</option>
+          <option value="INTERNAL_SUMMARY">INTERNAL_SUMMARY (僅顯示班級彙總)</option>
+          <option value="INTERNAL_STUDENT_DETAIL">INTERNAL_STUDENT_DETAIL (姓名遮罩處理)</option>
+          <option value="RESTRICTED_FINANCIAL_DETAIL">RESTRICTED_FINANCIAL_DETAIL (僅限財務與最高管理員)</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-top: 12px;">
+        <label for="tplNote">備註說明：</label>
+        <textarea id="tplNote" class="form-control" rows="3" placeholder="例如：公文文號修訂版"></textarea>
+      </div>
+    </div>
+
+    <div class="modal-footer" style="margin-top: 20px;">
+      <button class="btn btn-secondary" onclick="closeCreateTemplateDialog()">取消</button>
+      <button class="btn btn-primary" onclick="submitCreateTemplate()">提交草稿</button>
+    </div>
+  </div>
+</div>

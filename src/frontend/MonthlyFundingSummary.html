@@ -1,0 +1,109 @@
+<!-- MonthlyFundingSummary.html -->
+<div id="monthly-funding-summary-view" class="subpage-view hidden">
+  <div class="view-header">
+    <h2 class="view-title">📊 月度補助來源彙總 (Summary)</h2>
+    <p class="view-desc">調閱各月份、各班級、各補助身分、各餐別的機關補助與學生自付加總對帳額。</p>
+  </div>
+
+  <div class="card my-3">
+    <div class="flex gap-4 align-end">
+      <div style="flex: 1;">
+        <label for="summary-month-select" class="form-label text-sm font-semibold">選擇月份：</label>
+        <input type="month" id="summary-month-select" class="form-control">
+      </div>
+      <div>
+        <button id="btn-query-summary" class="btn btn-primary">🔍 查詢對帳彙總</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table" id="funding-summary-table">
+        <thead>
+          <tr>
+            <th>班級</th>
+            <th>補助身分</th>
+            <th>膳食別</th>
+            <th>資金來源</th>
+            <th class="text-right">總用餐餐數</th>
+            <th class="text-right">餐費總額 (元)</th>
+            <th class="text-right">原始分配 (元)</th>
+            <th class="text-right">尾差調整 (元)</th>
+            <th class="text-right">最終分配額 (元)</th>
+            <th>對帳狀態</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="10" class="text-center text-muted">請點擊「查詢對帳彙總」載入資料。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    var monthInput = document.getElementById('summary-month-select');
+    var btnQuery = document.getElementById('btn-query-summary');
+
+    var today = new Date();
+    monthInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
+
+    btnQuery.addEventListener('click', loadFundingSummary);
+
+    function loadFundingSummary() {
+      var ym = monthInput.value;
+      if (!ym) return;
+
+      var tbody = document.querySelector('#funding-summary-table tbody');
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">⏳ 正在載入月度彙整資料...</td></tr>';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          tbody.innerHTML = '';
+          if (res.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">本月尚無月度彙總紀錄，請先執行分攤試算。</td></tr>';
+            return;
+          }
+
+          var sourceNames = {
+            township: '公所補助',
+            county: '縣府補助',
+            school: '學校補助',
+            self_pay: '自付額',
+            other: '其他'
+          };
+
+          res.forEach(function(r) {
+            var tr = document.createElement('tr');
+            var statusBadge = r.reconciliation_status === 'reconciled' 
+              ? '<span class="text-success">✔ 已對銷</span>' 
+              : '<span class="text-danger">✘ 未對銷</span>';
+
+            tr.innerHTML = '<td>' + (r.class_code || '---') + '</td>' +
+                         '<td><span class="badge badge-secondary">' + r.subsidy_category_id + '</span></td>' +
+                         '<td>' + r.dietary_type + '</td>' +
+                         '<td><b>' + (sourceNames[r.funding_source] || r.funding_source) + '</b></td>' +
+                         '<td class="text-right">' + r.meal_count + ' 餐</td>' +
+                         '<td class="text-right">$' + (r.gross_amount_minor / 100).toFixed(2) + '</td>' +
+                         '<td class="text-right">$' + (r.calculated_amount_minor / 100).toFixed(2) + '</td>' +
+                         '<td class="text-right text-warning">$' + (r.residual_adjustment_minor / 100).toFixed(2) + '</td>' +
+                         '<td class="text-right font-semibold">$' + (r.final_amount_minor / 100).toFixed(2) + '</td>' +
+                         '<td>' + statusBadge + '</td>';
+            tbody.appendChild(tr);
+          });
+        })
+        .withFailureHandler(function(err) {
+          tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger">載入彙總失敗: ' + err.message + '</td></tr>';
+        })
+        .apiGetMonthlyFundingSummary(ym);
+    }
+
+    window.addEventListener('hashchange', function() {
+      if (location.hash === '#monthly-funding-summary') {
+        loadFundingSummary();
+      }
+    });
+  })();
+</script>

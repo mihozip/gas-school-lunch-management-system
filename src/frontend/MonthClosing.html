@@ -1,0 +1,251 @@
+<!-- MonthClosing.html -->
+<div id="month-closing-view" class="subpage-view hidden">
+  <div class="view-header">
+    <h2 class="view-title">🔐 月結歸檔與歷史鎖定 (Closing)</h2>
+    <p class="view-desc">完成餐數對帳與機關分攤試算後，進行正式封鎖，禁止已月結期間內任何學籍或停餐異動。</p>
+  </div>
+
+  <div class="card my-3">
+    <div class="flex gap-4 align-end">
+      <div style="flex: 1;">
+        <label for="closing-month-select" class="form-label text-sm font-semibold">選擇月份：</label>
+        <input type="month" id="closing-month-select" class="form-control">
+      </div>
+      <div class="flex gap-2">
+        <button id="btn-validate-closing" class="btn btn-secondary">🔍 驗證就緒性</button>
+        <button id="btn-close-month" class="btn btn-danger">🔒 正式月結鎖定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 檢核面板 -->
+  <div class="grid grid-cols-3 gap-4">
+    <div class="card col-span-2">
+      <h3 class="card-title">🛡 月結就緒性檢驗報告</h3>
+      <div id="closing-readiness-report">
+        <p class="text-muted">請點擊「驗證就緒性」產生就緒報告。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">⚙ 當前月結封存狀態</h3>
+      <div class="flex flex-column gap-3">
+        <div>
+          <span class="text-muted text-sm d-block">月結狀態：</span>
+          <span id="current-closing-status" class="font-bold text-lg">讀取中...</span>
+        </div>
+        <div>
+          <span class="text-muted text-sm d-block">月結版本：</span>
+          <span id="current-closing-version" class="font-semibold">--</span>
+        </div>
+        <div>
+          <span class="text-muted text-sm d-block">關聯餐數批次：</span>
+          <span id="current-closing-meal-run" class="text-sm font-mono">--</span>
+        </div>
+        <div>
+          <span class="text-muted text-sm d-block">關聯補助批次：</span>
+          <span id="current-closing-funding-run" class="text-sm font-mono">--</span>
+        </div>
+        <hr class="my-2">
+        <div id="reopen-panel" class="hidden">
+          <label for="reopen-reason-input" class="form-label text-sm font-semibold text-danger">⚠️ 解除月結解鎖原因：</label>
+          <textarea id="reopen-reason-input" class="form-control mb-2" rows="2" placeholder="請輸入解鎖核准事由文號..."></textarea>
+          <button id="btn-reopen-month" class="btn btn-outline-danger w-full">🔓 解除月結鎖定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 月結二次安全確認 Modal -->
+<div id="close-confirm-modal" class="modal-backdrop hidden">
+  <div class="modal">
+    <h3 class="modal-title text-danger">⚠️ 警告：即將執行正式月結鎖定</h3>
+    <div class="modal-body" style="line-height: 1.6;">
+      <p><b>「月結後，本月份所有影響餐數及補助的資料將被鎖定。是否繼續？」</b></p>
+      <p class="text-muted text-sm my-2">此作業會執行下列保護動作：<br>
+      1. 鎖定本月日曆、請假與長期停餐登記，禁止任何人員增刪修改。<br>
+      2. 鎖定本月學員學籍轉入、轉出、轉班、身分歷程變更。<br>
+      3. 在 Google Drive 自動導出對帳 CSV 與清單 Manifest 封存包。</p>
+      
+      <label for="confirm-text-input" class="form-label font-bold text-sm">請輸入「確認月結鎖定」以完成操作：</label>
+      <input type="text" id="confirm-text-input" class="form-control mt-1" placeholder="確認月結鎖定">
+    </div>
+    <div class="modal-footer flex justify-end gap-2 mt-3">
+      <button id="btn-close-confirm-cancel" class="btn btn-secondary">取消</button>
+      <button id="btn-close-confirm-submit" class="btn btn-danger">🔒 確認鎖定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    var monthInput = document.getElementById('closing-month-select');
+    var btnValidate = document.getElementById('btn-validate-closing');
+    var btnClose = document.getElementById('btn-close-month');
+    var btnReopen = document.getElementById('btn-reopen-month');
+    var reopenReason = document.getElementById('reopen-reason-input');
+
+    var modal = document.getElementById('close-confirm-modal');
+    var confirmInput = document.getElementById('confirm-text-input');
+    var btnModalCancel = document.getElementById('btn-close-confirm-cancel');
+    var btnModalSubmit = document.getElementById('btn-close-confirm-submit');
+
+    var today = new Date();
+    monthInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
+
+    monthInput.addEventListener('change', loadClosingStatus);
+    btnValidate.addEventListener('click', runValidation);
+    btnClose.addEventListener('click', showCloseModal);
+    btnReopen.addEventListener('click', runReopen);
+    btnModalCancel.addEventListener('click', hideCloseModal);
+    btnModalSubmit.addEventListener('click', submitCloseMonth);
+
+    function loadClosingStatus() {
+      var ym = monthInput.value;
+      if (!ym) return;
+
+      document.getElementById('current-closing-status').innerText = '讀取中...';
+      document.getElementById('reopen-panel').classList.add('hidden');
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          var statusEl = document.getElementById('current-closing-status');
+          var statusMap = {
+            draft: '草稿',
+            closed: '🔐 已鎖定封存',
+            reopened: '🔓 已解除鎖定',
+            superseded: '已過期 (Superseded)'
+          };
+
+          if (res) {
+            statusEl.innerText = statusMap[res.status] || res.status;
+            statusEl.className = res.status === 'closed' ? 'font-bold text-lg text-success' : 'font-bold text-lg text-warning';
+            document.getElementById('current-closing-version').innerText = 'v' + res.closing_version;
+            document.getElementById('current-closing-meal-run').innerText = res.meal_reconciliation_run_id || 'N/A';
+            document.getElementById('current-closing-funding-run').innerText = res.funding_calculation_run_id || 'N/A';
+            
+            if (res.status === 'closed') {
+              document.getElementById('reopen-panel').classList.remove('hidden');
+            }
+          } else {
+            statusEl.innerText = '未開始';
+            statusEl.className = 'font-bold text-lg text-muted';
+            document.getElementById('current-closing-version').innerText = '--';
+            document.getElementById('current-closing-meal-run').innerText = 'N/A';
+            document.getElementById('current-closing-funding-run').innerText = 'N/A';
+          }
+        })
+        .apiGetCurrentClosing(ym);
+    }
+
+    function runValidation() {
+      var ym = monthInput.value;
+      if (!ym) return;
+
+      var reportEl = document.getElementById('closing-readiness-report');
+      reportEl.innerHTML = '<p class="text-muted">⏳ 正在執行月結就緒性大宗稽核...</p>';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          reportEl.innerHTML = '';
+          var html = '<div class="alert ' + (res.isReady ? 'alert-success' : 'alert-danger') + '">' +
+                     '<b>月結就緒性判定：' + (res.isReady ? '✅ 已就緒' : '❌ 條件未符合') + '</b>' +
+                     '</div>';
+
+          if (res.errors.length > 0) {
+            html += '<h4 class="font-semibold text-danger my-2">阻斷性缺失清單 (Blocking Issues)：</h4><ul style="line-height: 1.8;">';
+            res.errors.forEach(function(e) {
+              html += '<li class="text-danger">' + e + '</li>';
+            });
+            html += '</ul>';
+          } else {
+            html += '<p class="text-success font-semibold">✔ 通過所有對帳檢驗！可立即執行正式月結鎖定。</p>';
+          }
+
+          reportEl.innerHTML = html;
+        })
+        .apiValidateClosing(ym);
+    }
+
+    function showCloseModal() {
+      confirmInput.value = '';
+      modal.classList.remove('hidden');
+    }
+
+    function hideCloseModal() {
+      modal.classList.add('hidden');
+    }
+
+    function submitCloseMonth() {
+      var ym = monthInput.value;
+      var txt = confirmInput.value.trim();
+      if (txt !== '確認月結鎖定') {
+        showNotification('安全複核字串不正確，請輸入「確認月結鎖定」', 'danger');
+        return;
+      }
+
+      hideCloseModal();
+      showLoadingModal('正在寫入月結鎖定並於 Google Drive 封存對帳包...');
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          hideLoadingModal();
+          showNotification('🔐 月份 ' + ym + ' 已正式封鎖完成！導出備份已寫入雲端硬碟。', 'success');
+          loadClosingStatus();
+          runValidation();
+        })
+        .withFailureHandler(function(err) {
+          hideLoadingModal();
+          showNotification('月結鎖定失敗: ' + err.message, 'danger');
+        })
+        .apiCloseMonth(ym, txt);
+    }
+
+    function runReopen() {
+      var ym = monthInput.value;
+      var reason = reopenReason.value.trim();
+      if (!reason) {
+        showNotification('必須填寫解鎖原因才能執行。', 'danger');
+        return;
+      }
+
+      showLoadingModal('正在解除期間鎖定...');
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          hideLoadingModal();
+          showNotification('🔓 已成功解除月結鎖定，該月份已重新開放異動寫入！', 'success');
+          reopenReason.value = '';
+          loadClosingStatus();
+          runValidation();
+        })
+        .withFailureHandler(function(err) {
+          hideLoadingModal();
+          showNotification('解鎖失敗: ' + err.message, 'danger');
+        })
+        .apiGetCurrentClosing(ym) // 取得 closing_id
+        .then(function(closing) {
+          if (closing) {
+            google.script.run
+              .withSuccessHandler(function(res) {
+                hideLoadingModal();
+                showNotification('🔓 已成功解除月結鎖定！', 'success');
+                loadClosingStatus();
+              })
+              .withFailureHandler(function(err) {
+                hideLoadingModal();
+                showNotification('解鎖失敗: ' + err.message, 'danger');
+              })
+              .apiReopenMonth(closing.closing_id, reason);
+          }
+        });
+    }
+
+    window.addEventListener('hashchange', function() {
+      if (location.hash === '#month-closing') {
+        loadClosingStatus();
+      }
+    });
+  })();
+</script>

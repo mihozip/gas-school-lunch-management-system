@@ -1,0 +1,409 @@
+<!-- 編輯學生 Modal 對話框 -->
+<div class="modal" id="studentEditModal" style="display:none;">
+  <div class="modal-content" style="max-width: 600px; padding: 25px;">
+    <span class="modal-close" onclick="closeStudentEditModal()">&times;</span>
+    <h3 id="studentModalTitle" style="margin-top: 0; margin-bottom: 15px; color: var(--primary-color);">學生學籍編輯</h3>
+    
+    <!-- 頁籤導覽列 -->
+    <div style="display: flex; border-bottom: 2px solid var(--border-color); margin-bottom: 20px; gap: 10px;">
+      <div class="tab-btn active" id="tabBtnBasic" onclick="switchStudentTab('basic')">基本資料</div>
+      <div class="tab-btn" id="tabBtnClassChange" onclick="switchStudentTab('class')">班級轉班</div>
+      <div class="tab-btn" id="tabBtnSubsidyChange" onclick="switchStudentTab('subsidy')">身分異動</div>
+    </div>
+
+    <input type="hidden" id="editStudentId">
+
+    <!-- 頁籤一：基本資料 -->
+    <div id="studentTabBasic">
+      <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">學年度 *</label>
+        <input type="number" id="sFormSchoolYear" style="width: 100%;" required>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+          <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">學生姓名 *</label>
+          <input type="text" id="sFormName" style="width: 100%;" required>
+        </div>
+        <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+          <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">學號 (選填)</label>
+          <input type="text" id="sFormNumber" style="width: 100%;">
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+          <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">座號 *</label>
+          <input type="number" id="sFormSeatNumber" style="width: 100%;" required>
+        </div>
+        <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+          <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">膳食類別 *</label>
+          <select id="sFormDietary" style="width: 100%;"></select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 12px; text-align: left;" id="groupClassSelectInit">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">就讀班級 * (新增後轉班請至分頁)</label>
+        <select id="sFormClassSelectInit" style="width: 100%;"></select>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 12px; text-align: left;" id="groupSubsidySelectInit">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">初始補助身分 * (新增後變更請至分頁)</label>
+        <select id="sFormSubsidySelectInit" style="width: 100%;"></select>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+          <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">開始供餐日期 *</label>
+          <input type="date" id="sFormStartDate" style="width: 100%;" required>
+        </div>
+        <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+          <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">結束供餐日期 (選填)</label>
+          <input type="date" id="sFormEndDate" style="width: 100%;">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">供餐學籍狀態</label>
+        <select id="sFormMealStatus" style="width: 100%;">
+          <option value="normal">正常供餐中 (normal)</option>
+          <option value="suspended">暫停供餐/長期停餐 (suspended)</option>
+          <option value="transferred">已轉學轉出 (transferred)</option>
+          <option value="graduated">已畢業離校 (graduated)</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 12px; text-align: left;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 3px;">備註說明</label>
+        <textarea id="sFormNote" rows="2" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-color);"></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+        <button class="btn btn-secondary" onclick="closeStudentEditModal()">取消</button>
+        <button class="btn btn-primary" onclick="submitStudentBasicForm()">儲存基本資料</button>
+      </div>
+    </div>
+
+    <!-- 頁籤二：班級轉班 -->
+    <div id="studentTabClass" style="display:none; text-align: left;">
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 15px;">
+        ⚠️ <strong>提示</strong>：請勿直接覆蓋班級以防歷史紀錄流失。系統將自動截止目前班級歷程，並自生效日起將學生分發至新班級。
+      </p>
+      
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">目前班級</label>
+        <input type="text" id="sFormCurrentClassText" style="width: 100%;" disabled>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">目標新班級 *</label>
+        <select id="sFormNewClassSelect" style="width: 100%;"></select>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">轉班生效日期 *</label>
+        <input type="date" id="sFormClassEffectiveDate" style="width: 100%;">
+      </div>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">轉班原因</label>
+        <input type="text" id="sFormClassChangeReason" placeholder="例如：月中轉班、年級分班" style="width: 100%;">
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeStudentEditModal()">取消</button>
+        <button class="btn btn-primary" onclick="submitStudentClassChange()">執行轉班</button>
+      </div>
+    </div>
+
+    <!-- 頁籤三：身分異動 -->
+    <div id="studentTabSubsidy" style="display:none; text-align: left;">
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 15px;">
+        ⚠️ <strong>提示</strong>：用於月中取得公文核定身分（例如低收入戶、身障生等）。舊補助身分將截止於生效日前一天。
+      </p>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">目前身分</label>
+        <input type="text" id="sFormCurrentSubsidyText" style="width: 100%;" disabled>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">目標新身分 *</label>
+        <select id="sFormNewSubsidySelect" style="width: 100%;"></select>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">變更生效日期 *</label>
+        <input type="date" id="sFormSubsidyEffectiveDate" style="width: 100%;">
+      </div>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">異動公文文號/佐證案號</label>
+        <input type="text" id="sFormSubsidyDocNo" placeholder="如：府教字第123456號" style="width: 100%;">
+      </div>
+
+      <div class="form-group" style="margin-bottom: 15px;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">異動備註原因</label>
+        <input type="text" id="sFormSubsidyChangeReason" placeholder="例如：月中核定取得低收" style="width: 100%;">
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeStudentEditModal()">取消</button>
+        <button class="btn btn-primary" onclick="submitStudentSubsidyChange()">執行身分變更</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+.tab-btn {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-weight: bold;
+  color: var(--text-muted);
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s ease;
+}
+.tab-btn.active {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
+}
+.tab-btn:hover {
+  color: var(--primary-hover);
+}
+</style>
+
+<script>
+/**
+ * 頁籤切換
+ */
+function switchStudentTab(tab) {
+  document.getElementById('tabBtnBasic').classList.remove('active');
+  document.getElementById('tabBtnClassChange').classList.remove('active');
+  document.getElementById('tabBtnSubsidyChange').classList.remove('active');
+  
+  document.getElementById('studentTabBasic').style.display = 'none';
+  document.getElementById('studentTabClass').style.display = 'none';
+  document.getElementById('studentTabSubsidy').style.display = 'none';
+
+  if (tab === 'basic') {
+    document.getElementById('tabBtnBasic').classList.add('active');
+    document.getElementById('studentTabBasic').style.display = 'block';
+  } else if (tab === 'class') {
+    document.getElementById('tabBtnClassChange').classList.add('active');
+    document.getElementById('studentTabClass').style.display = 'block';
+  } else if (tab === 'subsidy') {
+    document.getElementById('tabBtnSubsidyChange').classList.add('active');
+    document.getElementById('studentTabSubsidy').style.display = 'block';
+  }
+}
+
+/**
+ * 開啟新增學生
+ */
+function openStudentCreateModal() {
+  document.getElementById('editStudentId').value = '';
+  document.getElementById('studentModalTitle').innerText = '新增學生資料';
+  
+  // 顯示初始班級與身分選擇，隱藏歷程分頁按鈕
+  document.getElementById('groupClassSelectInit').style.display = 'block';
+  document.getElementById('groupSubsidySelectInit').style.display = 'block';
+  document.getElementById('tabBtnClassChange').style.display = 'none';
+  document.getElementById('tabBtnSubsidyChange').style.display = 'none';
+  
+  switchStudentTab('basic');
+
+  // 初始化選單內容
+  populateSelects();
+
+  // 清空
+  document.getElementById('sFormSchoolYear').value = document.getElementById('studentYearFilter').value;
+  document.getElementById('sFormName').value = '';
+  document.getElementById('sFormNumber').value = '';
+  document.getElementById('sFormSeatNumber').value = '';
+  document.getElementById('sFormStartDate').value = Utils.formatDate(new Date());
+  document.getElementById('sFormEndDate').value = '';
+  document.getElementById('sFormMealStatus').value = 'normal';
+  document.getElementById('sFormNote').value = '';
+
+  document.getElementById('studentEditModal').style.display = 'flex';
+}
+
+/**
+ * 載入現有資料進行編輯
+ */
+function openStudentEditModal(studentId) {
+  document.getElementById('editStudentId').value = studentId;
+  document.getElementById('studentModalTitle').innerText = '編輯學生資料';
+
+  // 隱藏初始班級與身分選擇 (因為這兩個必須走歷程轉變)
+  document.getElementById('groupClassSelectInit').style.display = 'none';
+  document.getElementById('groupSubsidySelectInit').style.display = 'none';
+  document.getElementById('tabBtnClassChange').style.display = 'block';
+  document.getElementById('tabBtnSubsidyChange').style.display = 'block';
+  
+  switchStudentTab('basic');
+  populateSelects();
+
+  callServer('apiGetStudent', studentId)
+    .then(function(student) {
+      document.getElementById('sFormSchoolYear').value = student.school_year;
+      document.getElementById('sFormName').value = student.student_name;
+      document.getElementById('sFormNumber').value = student.student_number || '';
+      document.getElementById('sFormSeatNumber').value = student.seat_number;
+      document.getElementById('sFormDietary').value = student.dietary_type;
+      
+      document.getElementById('sFormStartDate').value = student.start_date;
+      document.getElementById('sFormEndDate').value = student.end_date || '';
+      document.getElementById('sFormMealStatus').value = student.meal_status;
+      document.getElementById('sFormNote').value = student.note || '';
+
+      // 設定班級異動分頁的預設目前狀態
+      var matchedClass = AppCache.classes.filter(function(c) { return c.class_id === student.class_id; })[0];
+      document.getElementById('sFormCurrentClassText').value = matchedClass ? matchedClass.class_name : '未分班';
+      
+      var matchedSubsidy = AppCache.categories.filter(function(x) { return x.subsidy_category_id === student.subsidy_category_id; })[0];
+      document.getElementById('sFormCurrentSubsidyText').value = matchedSubsidy ? matchedSubsidy.category_name : '一般生';
+
+      document.getElementById('studentEditModal').style.display = 'flex';
+    })
+    .catch(function(err) {
+      showToast(err.message, 'error');
+    });
+}
+
+function closeStudentEditModal() {
+  document.getElementById('studentEditModal').style.display = 'none';
+}
+
+function populateSelects() {
+  // 1. 班級選單
+  var classSelectInit = document.getElementById('sFormClassSelectInit');
+  var newClassSelect = document.getElementById('sFormNewClassSelect');
+  classSelectInit.innerHTML = '';
+  newClassSelect.innerHTML = '';
+
+  AppCache.classes.forEach(function(c) {
+    var opt = document.createElement('option');
+    opt.value = c.class_id;
+    opt.innerText = c.class_name + ' (' + c.class_code + ')';
+    classSelectInit.appendChild(opt.cloneNode(true));
+    newClassSelect.appendChild(opt);
+  });
+
+  // 2. 身分選單
+  var subsidySelectInit = document.getElementById('sFormSubsidySelectInit');
+  var newSubsidySelect = document.getElementById('sFormNewSubsidySelect');
+  subsidySelectInit.innerHTML = '';
+  newSubsidySelect.innerHTML = '';
+
+  AppCache.categories.forEach(function(cat) {
+    var opt = document.createElement('option');
+    opt.value = cat.subsidy_category_id;
+    opt.innerText = cat.category_name;
+    subsidySelectInit.appendChild(opt.cloneNode(true));
+    newSubsidySelect.appendChild(opt);
+  });
+
+  // 3. 膳食類別
+  var dietarySelect = document.getElementById('sFormDietary');
+  dietarySelect.innerHTML = '';
+  AppCache.dietaryTypes.forEach(function(d) {
+    if (d.enabled) {
+      var opt = document.createElement('option');
+      opt.value = d.code;
+      opt.innerText = d.name;
+      dietarySelect.appendChild(opt);
+    }
+  });
+}
+
+/**
+ * 提交基本資料
+ */
+function submitStudentBasicForm() {
+  var studentId = document.getElementById('editStudentId').value;
+  var payload = {
+    school_year: document.getElementById('sFormSchoolYear').value,
+    student_name: document.getElementById('sFormName').value,
+    student_number: document.getElementById('sFormNumber').value,
+    seat_number: document.getElementById('sFormSeatNumber').value,
+    dietary_type: document.getElementById('sFormDietary').value,
+    start_date: document.getElementById('sFormStartDate').value,
+    end_date: document.getElementById('sFormEndDate').value,
+    meal_status: document.getElementById('sFormMealStatus').value,
+    note: document.getElementById('sFormNote').value
+  };
+
+  if (!studentId) {
+    // 新增模式需要附加初始 class 與 subsidy
+    payload.class_id = document.getElementById('sFormClassSelectInit').value;
+    payload.subsidy_category_id = document.getElementById('sFormSubsidySelectInit').value;
+  }
+
+  var apiKey = studentId ? 'apiUpdateStudent' : 'apiCreateStudent';
+  var args = studentId ? [studentId, payload] : [payload];
+
+  callServer(apiKey, args)
+    .then(function(res) {
+      showToast('學生資料儲存成功', 'success');
+      closeStudentEditModal();
+      loadStudentsList();
+    })
+    .catch(function(err) {
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 提交轉班
+ */
+function submitStudentClassChange() {
+  var studentId = document.getElementById('editStudentId').value;
+  var classId = document.getElementById('sFormNewClassSelect').value;
+  var effDate = document.getElementById('sFormClassEffectiveDate').value;
+  var reason = document.getElementById('sFormClassChangeReason').value;
+
+  if (!effDate) {
+    showToast('請選擇轉班生效日期', 'warning');
+    return;
+  }
+
+  callServer('apiChangeStudentClass', [studentId, classId, effDate, reason])
+    .then(function() {
+      showToast('轉班手續已順利完成', 'success');
+      closeStudentEditModal();
+      loadStudentsList();
+    })
+    .catch(function(err) {
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 提交身分異動
+ */
+function submitStudentSubsidyChange() {
+  var studentId = document.getElementById('editStudentId').value;
+  var categoryId = document.getElementById('sFormNewSubsidySelect').value;
+  var effDate = document.getElementById('sFormSubsidyEffectiveDate').value;
+  var docNo = document.getElementById('sFormSubsidyDocNo').value;
+  var reason = document.getElementById('sFormSubsidyChangeReason').value;
+
+  if (!effDate) {
+    showToast('請選擇補助身分變更生效日期', 'warning');
+    return;
+  }
+
+  callServer('apiChangeStudentSubsidy', [studentId, categoryId, effDate, reason, docNo])
+    .then(function() {
+      showToast('身分異動已順利變更', 'success');
+      closeStudentEditModal();
+      loadStudentsList();
+    })
+    .catch(function(err) {
+      showToast(err.message, 'error');
+    });
+}
+</script>

@@ -1,0 +1,226 @@
+<!-- 學生名冊匯入精靈 - Step 2: Preview & Validation Grid -->
+<div style="text-align: left;">
+  
+  <!-- 統計概要小圖卡 -->
+  <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px;">
+    <div class="card" style="padding: 10px; margin-bottom: 0; border-top: 4px solid var(--status-healthy); text-align: center;">
+      <div style="font-size: 0.8rem; color: var(--text-muted);">新增 (CREATE)</div>
+      <div style="font-size: 1.5rem; font-weight: bold; color: var(--status-healthy);" id="previewCntCreate">0</div>
+    </div>
+    <div class="card" style="padding: 10px; margin-bottom: 0; border-top: 4px solid #3B82F6; text-align: center;">
+      <div style="font-size: 0.8rem; color: var(--text-muted);">更新 (UPDATE)</div>
+      <div style="font-size: 1.5rem; font-weight: bold; color: #3B82F6;" id="previewCntUpdate">0</div>
+    </div>
+    <div class="card" style="padding: 10px; margin-bottom: 0; border-top: 4px solid var(--text-muted); text-align: center;">
+      <div style="font-size: 0.8rem; color: var(--text-muted);">跳過 (SKIP)</div>
+      <div style="font-size: 1.5rem; font-weight: bold; color: var(--text-muted);" id="previewCntSkip">0</div>
+    </div>
+    <div class="card" style="padding: 10px; margin-bottom: 0; border-top: 4px solid var(--status-warning); text-align: center;">
+      <div style="font-size: 0.8rem; color: var(--text-muted);">重複 (CONFLICT)</div>
+      <div style="font-size: 1.5rem; font-weight: bold; color: var(--status-warning);" id="previewCntConflict">0</div>
+    </div>
+    <div class="card" style="padding: 10px; margin-bottom: 0; border-top: 4px solid var(--status-blocking); text-align: center;">
+      <div style="font-size: 0.8rem; color: var(--text-muted);">錯誤 (ERROR)</div>
+      <div style="font-size: 1.5rem; font-weight: bold; color: var(--status-blocking);" id="previewCntError">0</div>
+    </div>
+  </div>
+
+  <!-- 略過錯誤核取方塊與警示 -->
+  <div class="alert-box alert-warning" id="importPreviewAlert" style="margin-bottom: 15px; display: none;">
+    <span>⚠️ <strong>警示</strong>：貼上的名冊中含有錯誤 (ERROR) 或重複 (CONFLICT) 列，系統預設禁止直接提交。請勾選下方的「略過異常列」以僅提交有效列，或點選下載錯誤清單返回修正。</span>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+    <input type="checkbox" id="chkSkipErrors" onchange="toggleCommitButton()" style="width:16px; height:16px;">
+    <label for="chkSkipErrors" style="font-weight: bold; cursor: pointer;">
+      略過異常資料列，僅提交有效資料列 (新增 & 更新 & 跳過)
+    </label>
+  </div>
+
+  <!-- 預覽表格 -->
+  <div style="max-height: 350px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 20px;">
+    <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+      <thead style="position: sticky; top: 0; background: var(--card-bg); z-index: 1;">
+        <tr>
+          <th style="width: 50px;">列號</th>
+          <th>預估動作</th>
+          <th>學號</th>
+          <th>姓名</th>
+          <th>班級代碼</th>
+          <th>座號</th>
+          <th>身分類別</th>
+          <th>膳食類別</th>
+          <th>生效日期</th>
+          <th>錯誤/警告說明</th>
+        </tr>
+      </thead>
+      <tbody id="importPreviewTableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- 控制鍵 -->
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+    <button class="btn btn-secondary" onclick="downloadImportErrorsList()" id="btnDownloadErrors">📥 下載錯誤清單</button>
+    <div style="display: flex; gap: 10px;">
+      <button class="btn btn-secondary" onclick="backToImportStep1()">返回修改</button>
+      <button class="btn btn-primary" onclick="submitImportCommit()" id="btnSubmitCommit">🚀 確認提交匯入</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/**
+ * 渲染預覽視圖
+ */
+function renderImportPreview(result) {
+  // 1. 更新卡片計數
+  document.getElementById('previewCntCreate').innerText = result.summary.create;
+  document.getElementById('previewCntUpdate').innerText = result.summary.update;
+  document.getElementById('previewCntSkip').innerText = result.summary.skip;
+  document.getElementById('previewCntConflict').innerText = result.summary.conflict;
+  document.getElementById('previewCntError').innerText = result.summary.error;
+
+  var totalErrors = result.summary.error + result.summary.conflict;
+  var alertBox = document.getElementById('importPreviewAlert');
+  alertBox.style.display = totalErrors > 0 ? 'block' : 'none';
+
+  // 預設不勾選略過
+  document.getElementById('chkSkipErrors').checked = false;
+
+  // 2. 填充表格
+  var tbody = document.getElementById('importPreviewTableBody');
+  tbody.innerHTML = '';
+
+  result.rows.forEach(function(row, index) {
+    var tr = document.createElement('tr');
+    
+    // 預估動作徽章
+    var badgeClass = 'badge-healthy';
+    if (row.action === 'UPDATE') badgeClass = 'badge-warning';
+    if (row.action === 'SKIP') badgeClass = 'badge-secondary';
+    if (row.action === 'ERROR') badgeClass = 'badge-blocking';
+    if (row.action === 'CONFLICT') badgeClass = 'badge-blocking';
+    var actionBadge = '<span class="badge ' + badgeClass + '">' + row.action + '</span>';
+
+    // 錯誤與警告文字
+    var errText = '';
+    if (row.errors.length > 0) {
+      errText += '<span style="color:var(--status-blocking); display:block;">🛑 ' + row.errors.join('; ') + '</span>';
+    }
+    if (row.warnings.length > 0) {
+      errText += '<span style="color:orange; display:block;">⚠️ ' + row.warnings.join('; ') + '</span>';
+    }
+
+    var nd = row.normalizedData;
+    tr.innerHTML = 
+      '<td>' + (index + 2) + '</td>' + // 考慮首列 Header，資料列從 2 開始
+      '<td>' + actionBadge + '</td>' +
+      '<td>' + escapeHtml(nd.student_number || '-') + '</td>' +
+      '<td>' + escapeHtml(nd.student_name) + '</td>' +
+      '<td>' + escapeHtml(nd.class_code) + '</td>' +
+      '<td>' + nd.seat_number + '</td>' +
+      '<td>' + escapeHtml(nd.subsidy_category) + '</td>' +
+      '<td>' + escapeHtml(nd.dietary_type) + '</td>' +
+      '<td>' + escapeHtml(nd.start_date || '-') + '</td>' +
+      '<td>' + errText + '</td>';
+    
+    tbody.appendChild(tr);
+  });
+
+  toggleCommitButton();
+}
+
+/**
+ * 控制提交按鈕是否禁用
+ */
+function toggleCommitButton() {
+  var totalErrors = parseInt(document.getElementById('previewCntError').innerText, 10) + 
+                    parseInt(document.getElementById('previewCntConflict').innerText, 10);
+  
+  var skipChecked = document.getElementById('chkSkipErrors').checked;
+  var btn = document.getElementById('btnSubmitCommit');
+  
+  if (totalErrors > 0 && !skipChecked) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.title = '請先勾選「略過異常資料列」才能提交。';
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.title = '';
+  }
+}
+
+function backToImportStep1() {
+  document.getElementById('importStep1').style.display = 'block';
+  document.getElementById('importStep2').style.display = 'none';
+}
+
+/**
+ * 產生錯誤文字日誌並觸發瀏覽器下載
+ */
+function downloadImportErrorsList() {
+  var errLog = '學校午餐系統 - 學生大宗匯入錯誤日誌\n';
+  errLog += '檔案時間: ' + new Date().toLocaleString() + '\n';
+  errLog += '==============================================\n\n';
+
+  var hasErrors = false;
+  ImportCache.validatedRows.forEach(function(row, index) {
+    if (row.errors.length > 0 || row.warnings.length > 0) {
+      hasErrors = true;
+      errLog += '【第 ' + (index + 2) + ' 列】學號: ' + (row.normalizedData.student_number || '空') + ', 姓名: ' + row.normalizedData.student_name + '\n';
+      if (row.errors.length > 0) errLog += '  - 錯誤: ' + row.errors.join('; ') + '\n';
+      if (row.warnings.length > 0) errLog += '  - 警告: ' + row.warnings.join('; ') + '\n';
+      errLog += '\n';
+    }
+  });
+
+  if (!hasErrors) {
+    errLog += '沒有任何欄位錯誤與警告！本批資料非常健康，可直接提交。';
+  }
+
+  var blob = new Blob([errLog], { type: 'text/plain;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'import_error_log.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+/**
+ * 提交匯入 (與後端對接，Step 2 往 Step 3 推進)
+ */
+function submitImportCommit() {
+  showLoading('正在鎖定資料庫並執行匯入事務...');
+  
+  var skipChecked = document.getElementById('chkSkipErrors').checked;
+  var rowsToCommit = ImportCache.validatedRows;
+  
+  // 篩選僅提交有效列
+  if (skipChecked) {
+    rowsToCommit = rowsToCommit.filter(function(r) {
+      return r.action !== 'ERROR' && r.action !== 'CONFLICT';
+    });
+  }
+
+  callServer('apiCommitStudentImport', [rowsToCommit, ImportCache.schoolYear, ImportCache.originalFilename, ImportCache.payloadHash])
+    .then(function(res) {
+      hideLoading();
+      showToast('名冊大宗提交處理成功！', 'success');
+      
+      // 切換至 Step 3
+      document.getElementById('importStep2').style.display = 'none';
+      document.getElementById('importStep3').style.display = 'block';
+
+      // 載入結果頁面渲染
+      renderImportResult(res.batchId);
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast('匯入失敗：' + err.message, 'error');
+    });
+}
+</script>

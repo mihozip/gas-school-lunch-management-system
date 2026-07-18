@@ -1,0 +1,39 @@
+<!-- OfficialReportPackage.html -->
+<div class="card">
+  <div class="card-title">📦 正式核銷關帳封存包</div>
+  <p class="error-card-desc">
+    已完成月結閉簽的月份會在此顯示完整的導出包清單，包含原始點名 Ledger、分攤 Allocation 以及正式簽章的報表 PDF。
+  </p>
+
+  <div style="margin-top: 15px;">
+    <button class="btn btn-secondary" onclick="switchView('reports')">↩️ 返回報表中心</button>
+    <button class="btn btn-primary" onclick="verifyReportPackage()">🛡️ 驗證封存包 Integrity</button>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">封存包資訊與驗證狀態</div>
+  <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;" id="packageInfoBlock">
+    <!-- Loaded dynamically -->
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">完整導出檔案清單</div>
+  <div class="table-responsive" style="margin-top: 15px;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>檔案名稱</th>
+          <th>類型</th>
+          <th>檔案大小 (Bytes)</th>
+          <th>SHA-256 雜湊值</th>
+          <th>下載 / 預覽</th>
+        </tr>
+      </thead>
+      <tbody id="packageFileListBody">
+        <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">請先載入封存包...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

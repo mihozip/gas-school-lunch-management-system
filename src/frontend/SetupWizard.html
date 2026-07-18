@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base target="_top">
+    <title>系統一鍵引導初始化精靈 (狀態機模式)</title>
+    <?!= include('src/frontend/Styles') ?>
+    <style>
+      .wizard-wrapper {
+        max-width: 800px;
+        margin: 40px auto;
+        padding: 20px;
+      }
+      .wizard-header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .wizard-logo {
+        font-size: 3rem;
+        margin-bottom: 15px;
+      }
+      .wizard-title {
+        font-size: 1.8rem;
+        font-weight: bold;
+        color: var(--primary-color);
+      }
+      .wizard-desc {
+        color: var(--text-muted);
+        margin-top: 8px;
+        font-size: 0.95rem;
+      }
+      .step-indicator {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 30px;
+        position: relative;
+      }
+      .step-indicator::before {
+        content: '';
+        position: absolute;
+        top: 15px;
+        left: 5%;
+        right: 5%;
+        height: 2px;
+        background-color: var(--border-color);
+        z-index: 1;
+      }
+      .step-dot {
+        position: relative;
+        z-index: 2;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background-color: white;
+        border: 2px solid var(--border-color);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        transition: all 0.3s ease;
+      }
+      .step-dot.active {
+        border-color: var(--primary-light);
+        background-color: var(--primary-light);
+        color: white;
+        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+      }
+      .step-dot.completed {
+        border-color: var(--status-healthy);
+        background-color: var(--status-healthy);
+        color: white;
+      }
+      .step-label {
+        position: absolute;
+        top: 38px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 0.75rem;
+        font-weight: bold;
+        white-space: nowrap;
+        color: var(--text-muted);
+      }
+      .step-dot.active .step-label {
+        color: var(--primary-light);
+      }
+      .wizard-card {
+        background-color: white;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--card-shadow);
+        padding: 30px;
+        margin-bottom: 20px;
+      }
+      .wizard-card-title {
+        font-size: 1.2rem;
+        font-weight: bold;
+        margin-bottom: 20px;
+        color: var(--primary-color);
+        border-bottom: 1.5px solid var(--border-color);
+        padding-bottom: 10px;
+      }
+      .button-row {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 30px;
+      }
+      .step-panel {
+        display: none;
+      }
+      .step-panel.show {
+        display: block;
+        animation: fadeIn 0.4s ease forwards;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .report-item {
+        margin-bottom: 10px;
+        font-size: 0.9rem;
+      }
+      .console-log {
+        background-color: #1f2937;
+        color: #10b981;
+        font-family: monospace;
+        padding: 20px;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        height: 200px;
+        overflow-y: auto;
+        text-align: left;
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wizard-wrapper">
+      
+      <div class="wizard-header">
+        <div class="wizard-logo">🚀</div>
+        <h1 class="wizard-title">學校午餐管理系統一鍵初始化</h1>
+        <p class="wizard-desc">透過可中斷、自恢復的狀態機模式，快速部署 UAT 與正式生產環境資源。</p>
+      </div>
+
+      <!-- 步驟進度列 -->
+      <div class="step-indicator">
+        <div class="step-dot active" id="dot_1">
+          1
+          <span class="step-label">部署環境選擇</span>
+        </div>
+        <div class="step-dot" id="dot_2">
+          2
+          <span class="step-label">學校資訊</span>
+        </div>
+        <div class="step-dot" id="dot_3">
+          3
+          <span class="step-label">管理員設定</span>
+        </div>
+        <div class="step-dot" id="dot_4">
+          4
+          <span class="step-label">一鍵啟動</span>
+        </div>
+      </div>
+
+      <div class="wizard-card">
+        
+        <!-- 步驟 1: 環境選擇 -->
+        <div class="step-panel show" id="panel_1">
+          <h2 class="wizard-card-title">步驟 1：選擇部署目標環境</h2>
+          
+          <div class="form-group">
+            <label class="form-label" for="bootstrapEnv">目標部署環境：</label>
+            <select class="form-control" id="bootstrapEnv" onchange="onEnvChange()">
+              <option value="UAT">UAT 獨立測試驗證環境 (預設 - 建立沙盒)</option>
+              <option value="PRODUCTION">PRODUCTION 正式生產環境 (不建立測試資源)</option>
+            </select>
+          </div>
+
+          <div id="envInfoBlock" style="margin-top: 15px; background-color: var(--background-color); padding: 15px; border-radius: 6px; font-size: 0.9rem; line-height: 1.6;">
+            <!-- Loaded dynamically -->
+          </div>
+        </div>
+
+        <!-- 步驟 2: 學校資訊 -->
+        <div class="step-panel" id="panel_2">
+          <h2 class="wizard-card-title">步驟 2：學校與午餐營運設定</h2>
+          
+          <div class="form-group">
+            <label class="form-label" for="schoolName">學校名稱 <span style="color:red;">*</span></label>
+            <input type="text" class="form-control" id="schoolName" value="水月國民小學" placeholder="例如: 水月國民小學">
+          </div>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <label class="form-label" for="schoolYear">當前學年度 <span style="color:red;">*</span></label>
+            <input type="number" class="form-control" id="schoolYear" value="115" placeholder="例如: 115">
+          </div>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <label class="form-label" for="semester">學期</label>
+            <select class="form-control" id="semester">
+              <option value="1">第一學期</option>
+              <option value="2">第二學期</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <label class="form-label" for="defaultPrice">預設每餐金額 (元) <span style="color:red;">*</span></label>
+            <input type="number" class="form-control" id="defaultPrice" value="60" placeholder="例如: 60">
+          </div>
+        </div>
+
+        <!-- 步驟 3: 管理員設定 -->
+        <div class="step-panel" id="panel_3">
+          <h2 class="wizard-card-title">步驟 3：最高管理員帳號設定</h2>
+          <div class="alert-box alert-healthy">
+            <span>👤 系統已自動將您偵測為部署者，並將指派為本系統的第一位<b>系統管理員 (system_admin)</b>。</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="adminEmail">管理員 Email 帳號 (唯讀)</label>
+            <input type="text" class="form-control" id="adminEmail" value="<?= adminEmail ?>" disabled style="background-color: #f3f4f6;">
+          </div>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <label class="form-label" for="adminName">管理員姓名 <span style="color:red;">*</span></label>
+            <input type="text" class="form-control" id="adminName" value="系統管理員" placeholder="請輸入您的真實姓名">
+          </div>
+        </div>
+
+        <!-- 步驟 4: 執行與進度恢復 -->
+        <div class="step-panel" id="panel_4">
+          <h2 class="wizard-card-title">步驟 4：確認設定並開始建置</h2>
+          
+          <div id="resumePromptBlock" class="alert-box alert-warning" style="display: none;">
+            <span>⚠️ <strong>恢復初始化提示</strong>：偵測到先前的建置程序中途發生中斷，系統已準備好從目前步驟繼續執行。</span>
+          </div>
+
+          <p class="error-card-desc" style="text-align: left; margin-bottom: 15px;" id="wizardSummaryDesc">
+            點選下方按鈕開始一鍵自動資源配置。
+          </p>
+
+          <div id="initConsole" class="console-log" style="display: none;">
+            <p>> 狀態機已就緒，等待指令...</p>
+          </div>
+
+          <!-- 初始化完成成果摘要 -->
+          <div id="successReport" style="display:none;" class="alert-box alert-healthy">
+            <div>
+              <div style="font-weight:bold; margin-bottom: 12px; font-size:1.05rem;">🎉 一鍵系統建置與初始化成功！</div>
+              <div class="report-item" id="repEnv"></div>
+              <div class="report-item" id="repDb"></div>
+              <div class="report-item" id="repTestDb"></div>
+              <div class="report-item" id="repFolder"></div>
+              <div class="report-item" id="repTestFolder"></div>
+              <div class="report-item" id="repAdmin"></div>
+              <div class="report-item" id="repVersion"></div>
+              
+              <div style="margin-top: 15px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-primary" id="btnDownloadResult" onclick="downloadInitResult()">📥 下載初始化成果 JSON</button>
+                <a href="#" id="lnkDb" class="btn btn-secondary" target="_blank">📂 開啟正式資料庫</a>
+                <a href="#" id="lnkFolder" class="btn btn-secondary" target="_blank">📁 開啟報表資料夾</a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 按鈕控制區 -->
+        <div class="button-row">
+          <button class="btn btn-secondary btn-disabled" id="btnPrev" onclick="prevStep();" disabled>上一步</button>
+          <button class="btn btn-primary" id="btnNext" onclick="nextStep();">下一步</button>
+          <button class="btn btn-primary" id="btnSubmit" onclick="runBootstrapMachine();" style="display:none;">開始一鍵初始化</button>
+          <button class="btn btn-danger" id="btnReset" onclick="resetBootstrapMachine();" style="display:none; margin-left: 8px;">重設進度</button>
+          <button class="btn btn-primary" id="btnEnter" onclick="window.location.reload();" style="display:none;">進入系統</button>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- 讀取與提示組件 -->
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner"></div>
+      <div style="font-weight: bold; color: var(--text-main);" id="loadingText">請稍候...</div>
+    </div>
+
+    <?!= include('src/frontend/Scripts') ?>
+
+    <script>
+      var currentStep = 1;
+      var totalSteps = 4;
+      var bootstrapStatus = null;
+      var allSteps = [
+        'CREATE_ROOT_FOLDER',
+        'CREATE_DATABASE',
+        'CREATE_TEST_DATABASE',
+        'CREATE_SUBFOLDERS',
+        'CREATE_DATABASE_SCHEMAS',
+        'CREATE_SYSTEM_CONFIG',
+        'CREATE_SYSTEM_ADMIN',
+        'CREATE_DEFAULT_TEMPLATES',
+        'RUN_HEALTH_CHECK',
+        'COMPLETE'
+      ];
+
+      window.addEventListener('load', function() {
+        onEnvChange();
+        checkCurrentBootstrapStatus();
+      });
+
+      function onEnvChange() {
+        var env = document.getElementById('bootstrapEnv').value;
+        var info = document.getElementById('envInfoBlock');
+        
+        if (env === 'UAT') {
+          info.innerHTML = '<strong>📌 UAT 獨立測試驗證環境配置：</strong>' +
+                           '<ul style="margin-top: 5px; padding-left: 18px;">' +
+                           '<li>建立 UAT 正式資料庫 (試算表)：<code>UAT_DATABASE_SPREADSHEET</code></li>' +
+                           '<li>建立 測試沙盒資料庫 (試算表)：<code>TEST_SPREADSHEET</code></li>' +
+                           '<li>建立 UAT 報表根目錄 (資料夾)：<code>UAT_REPORT_ROOT_FOLDER</code></li>' +
+                           '<li>建立 測試報告與對帳存檔 (資料夾)：<code>TEST_REPORT_FOLDER</code></li>' +
+                           '</ul>';
+        } else {
+          info.innerHTML = '<strong>📌 PRODUCTION 正式生產環境配置：</strong>' +
+                           '<ul style="margin-top: 5px; padding-left: 18px; color: var(--danger-color);">' +
+                           '<li>建立 正式營運資料庫 (試算表)：<code>PRODUCTION_DATABASE_SPREADSHEET</code></li>' +
+                           '<li>建立 正式報表根目錄 (資料夾)：<code>PRODUCTION_REPORT_ROOT_FOLDER</code></li>' +
+                           '<li>⚠️ <strong>正式環境限制</strong>：不建立任何測試試算表或測試結果資料夾，以隔絕破壞性 TestRunner 測試運作。</li>' +
+                           '</ul>';
+        }
+      }
+
+      function checkCurrentBootstrapStatus() {
+        callServer('apiGetBootstrapStatus').then(function(status) {
+          bootstrapStatus = status;
+          if (status.status === 'IN_PROGRESS' || status.status === 'FAILED') {
+            document.getElementById('resumePromptBlock').style.display = 'block';
+            document.getElementById('btnSubmit').innerText = '繼續初始化 (自步驟 ' + status.currentStep + ')';
+            document.getElementById('btnReset').style.display = 'inline-flex';
+            document.getElementById('bootstrapEnv').value = status.environment;
+            document.getElementById('bootstrapEnv').disabled = true;
+            onEnvChange();
+          } else if (status.status === 'COMPLETED') {
+            showSuccessBootstrapSummary(status);
+          }
+        });
+      }
+
+      function updateWizardUI() {
+        for (var i = 1; i <= totalSteps; i++) {
+          var dot = document.getElementById('dot_' + i);
+          if (i < currentStep) {
+            dot.className = 'step-dot completed';
+          } else if (i === currentStep) {
+            dot.className = 'step-dot active';
+          } else {
+            dot.className = 'step-dot';
+          }
+
+          var panel = document.getElementById('panel_' + i);
+          if (i === currentStep) {
+            panel.classList.add('show');
+          } else {
+            panel.classList.remove('show');
+          }
+        }
+
+        var btnPrev = document.getElementById('btnPrev');
+        var btnNext = document.getElementById('btnNext');
+        var btnSubmit = document.getElementById('btnSubmit');
+        var btnEnter = document.getElementById('btnEnter');
+
+        if (currentStep === 1) {
+          btnPrev.disabled = true;
+          btnPrev.classList.add('btn-disabled');
+        } else {
+          btnPrev.disabled = false;
+          btnPrev.classList.remove('btn-disabled');
+        }
+
+        if (currentStep === totalSteps) {
+          btnNext.style.display = 'none';
+          if (btnEnter.style.display !== 'inline-flex') {
+            btnSubmit.style.display = 'inline-flex';
+          }
+        } else {
+          btnNext.style.display = 'inline-flex';
+          btnSubmit.style.display = 'none';
+          btnEnter.style.display = 'none';
+        }
+      }
+
+      function nextStep() {
+        if (currentStep === 2) {
+          var schoolName = document.getElementById('schoolName').value.trim();
+          var schoolYear = document.getElementById('schoolYear').value.trim();
+          var price = document.getElementById('defaultPrice').value.trim();
+          if (!schoolName || !schoolYear || !price) {
+            showToast('請填寫學校與營運設定', 'warning');
+            return;
+          }
+        } else if (currentStep === 3) {
+          var adminName = document.getElementById('adminName').value.trim();
+          if (!adminName) {
+            showToast('請輸入管理員姓名', 'warning');
+            return;
+          }
+        }
+
+        if (currentStep < totalSteps) {
+          currentStep++;
+          updateWizardUI();
+        }
+      }
+
+      function prevStep() {
+        if (currentStep > 1) {
+          currentStep--;
+          updateWizardUI();
+        }
+      }
+
+      function runBootstrapMachine() {
+        var env = document.getElementById('bootstrapEnv').value;
+        var schoolName = document.getElementById('schoolName').value.trim();
+        var schoolYear = parseInt(document.getElementById('schoolYear').value.trim(), 10);
+        var semester = parseInt(document.getElementById('semester').value, 10);
+        var defaultPrice = parseFloat(document.getElementById('defaultPrice').value.trim());
+        var adminName = document.getElementById('adminName').value.trim();
+        var adminEmail = document.getElementById('adminEmail').value;
+
+        var settings = {
+          environment: env,
+          schoolName: schoolName,
+          schoolYear: schoolYear,
+          semester: semester,
+          defaultPrice: defaultPrice,
+          adminName: adminName,
+          adminEmail: adminEmail
+        };
+
+        var consoleEl = document.getElementById('initConsole');
+        consoleEl.style.display = 'block';
+        document.getElementById('btnSubmit').disabled = true;
+        document.getElementById('btnSubmit').classList.add('btn-disabled');
+        document.getElementById('btnPrev').disabled = true;
+        document.getElementById('btnPrev').classList.add('btn-disabled');
+        document.getElementById('btnReset').style.display = 'none';
+
+        // 遞迴執行狀態機步驟
+        function executeNext(stepIndex) {
+          if (stepIndex >= allSteps.length) {
+            // 全部完成
+            consoleEl.innerHTML += '<p style="color:#10b981">> 🎉 初始化狀態機完整建置成功！</p>';
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+            showToast('一鍵初始化部署成功！', 'success');
+            
+            callServer('apiGetBootstrapStatus').then(function(finalStatus) {
+              showSuccessBootstrapSummary(finalStatus);
+            });
+            return;
+          }
+
+          var stepName = allSteps[stepIndex];
+          
+          // 如果是 PRODUCTION，跳過測試與沙盒資源建立步驟
+          if (env === 'PRODUCTION' && (stepName === 'CREATE_TEST_DATABASE' || stepName === 'CREATE_SUBFOLDERS')) {
+            executeNext(stepIndex + 1);
+            return;
+          }
+
+          consoleEl.innerHTML += '<p>> 正在執行：' + stepName + '...</p>';
+          consoleEl.scrollTop = consoleEl.scrollHeight;
+
+          callServer('apiExecuteBootstrapStep', stepName, settings)
+            .then(function(newStatus) {
+              consoleEl.innerHTML += '<p style="color:#10b981">> 步驟 ' + stepName + ' 成功。</p>';
+              consoleEl.scrollTop = consoleEl.scrollHeight;
+              bootstrapStatus = newStatus;
+              
+              // 遞迴呼叫下一步
+              executeNext(stepIndex + 1);
+            })
+            .catch(function(err) {
+              consoleEl.innerHTML += '<p style="color:#ef4444">> ❌ 步驟 ' + stepName + ' 失敗：' + escapeHtml(err.message) + '</p>';
+              consoleEl.scrollTop = consoleEl.scrollHeight;
+              showToast('初始化於 ' + stepName + ' 中斷。請修復錯誤後點選繼續。', 'error');
+              
+              document.getElementById('btnSubmit').disabled = false;
+              document.getElementById('btnSubmit').classList.remove('btn-disabled');
+              document.getElementById('btnSubmit').innerText = '繼續初始化 (自步驟 ' + stepName + ')';
+              document.getElementById('btnReset').style.display = 'inline-flex';
+            });
+        }
+
+        // 偵測從哪個步驟開始執行
+        var startIdx = 0;
+        if (bootstrapStatus && (bootstrapStatus.status === 'IN_PROGRESS' || bootstrapStatus.status === 'FAILED')) {
+          var curStep = bootstrapStatus.currentStep;
+          startIdx = allSteps.indexOf(curStep);
+          if (startIdx === -1) startIdx = 0;
+        }
+
+        executeNext(startIdx);
+      }
+
+      function resetBootstrapMachine() {
+        if (!confirm('您確定要清空當前初始化進度，重新設定嗎？已建立的 Spreadsheet 及 Folder 變數將會被清除重置。')) return;
+        
+        callServer('apiResetBootstrap').then(function() {
+          showToast('初始化進度已成功重設。', 'success');
+          document.getElementById('resumePromptBlock').style.display = 'none';
+          document.getElementById('btnSubmit').innerText = '開始一鍵初始化';
+          document.getElementById('btnReset').style.display = 'none';
+          document.getElementById('bootstrapEnv').disabled = false;
+          bootstrapStatus = null;
+          currentStep = 1;
+          updateWizardUI();
+        });
+      }
+
+      function showSuccessBootstrapSummary(status) {
+        bootstrapStatus = status;
+        document.getElementById('resumePromptBlock').style.display = 'none';
+        document.getElementById('initConsole').style.display = 'none';
+        document.getElementById('wizardSummaryDesc').style.display = 'none';
+        
+        document.getElementById('repEnv').innerHTML = '<strong>環境：</strong> ' + status.environment;
+        document.getElementById('repDb').innerHTML = '<strong>資料庫 ID：</strong> <code>' + status.databaseSpreadsheetId + '</code>';
+        
+        if (status.environment === 'UAT') {
+          document.getElementById('repTestDb').innerHTML = '<strong>測試沙盒 ID：</strong> <code>' + status.testSpreadsheetId + '</code>';
+          document.getElementById('repTestFolder').innerHTML = '<strong>測試結果儲存區 ID：</strong> <code>' + status.testReportFolderId + '</code>';
+        } else {
+          document.getElementById('repTestDb').style.display = 'none';
+          document.getElementById('repTestFolder').style.display = 'none';
+        }
+        
+        document.getElementById('repFolder').innerHTML = '<strong>報表根資料夾 ID：</strong> <code>' + status.reportRootFolderId + '</code>';
+        document.getElementById('repAdmin').innerHTML = '<strong>最高管理員：</strong> ' + status.completedBy;
+        document.getElementById('repVersion').innerHTML = '<strong>Schema 版本：</strong> 5.0 (29 張工作表)';
+        
+        // 綁定超連結
+        document.getElementById('lnkDb').href = 'https://docs.google.com/spreadsheets/d/' + status.databaseSpreadsheetId + '/edit';
+        document.getElementById('lnkFolder').href = 'https://drive.google.com/drive/folders/' + status.reportRootFolderId;
+
+        document.getElementById('successReport').style.display = 'block';
+        document.getElementById('btnSubmit').style.display = 'none';
+        document.getElementById('btnReset').style.display = 'none';
+        document.getElementById('btnPrev').style.display = 'none';
+        document.getElementById('btnEnter').style.display = 'inline-flex';
+        
+        currentStep = 4;
+        updateWizardUI();
+      }
+
+      function downloadInitResult() {
+        if (!bootstrapStatus) return;
+        var dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bootstrapStatus, null, 2));
+        var dlAnchorElem = document.createElement('a');
+        dlAnchorElem.setAttribute("href",     dataStr     );
+        dlAnchorElem.setAttribute("download", "bootstrap_init_result.json");
+        dlAnchorElem.click();
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,36 @@
+<!-- ReportGenerationHistory.html -->
+<div class="card">
+  <div class="card-title">📜 正式報表產生歷史與稽核紀錄</div>
+  <p class="error-card-desc">
+    系統追蹤每一次正式關帳報表的產出狀態、來源雜湊 (SHA-256) 以及最終產出之 PDF 雜湊，以供防撬審計。
+  </p>
+
+  <div style="margin-top: 15px;">
+    <button class="btn btn-secondary" onclick="switchView('reports')">↩️ 返回報表中心</button>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">報表產生紀錄 (ReportGenerationRuns)</div>
+  <div class="table-responsive" style="margin-top: 15px;">
+    <table class="data-table" id="reportHistoryTable">
+      <thead>
+        <tr>
+          <th>批次ID</th>
+          <th>年月</th>
+          <th>版本</th>
+          <th>報表類型</th>
+          <th>範本版本</th>
+          <th>產生狀態</th>
+          <th>來源雜湊 (SHA-256)</th>
+          <th>產出檔案</th>
+          <th>執行人</th>
+          <th>完成時間</th>
+        </tr>
+      </thead>
+      <tbody id="reportHistoryBody">
+        <tr><td colspan="10" style="text-align: center; color: var(--text-muted);">正在載入歷史...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,291 @@
+<div class="card" id="mealSuspensionView">
+  <div class="card-title">學生長期停餐區間管理</div>
+  
+  <div style="display: flex; gap: 15px; margin-bottom: 20px; text-align: left; align-items: flex-end;">
+    <div style="flex: 1;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">選擇要設定停餐的學生 *</label>
+      <select id="suspStudentSelect" onchange="loadStudentSuspensions()" style="width: 100%;"></select>
+    </div>
+    <button class="btn btn-primary" onclick="openSuspensionModal()">➕ 新增停餐區間</button>
+  </div>
+
+  <!-- 停餐列表表格 -->
+  <div style="overflow-x: auto;">
+    <table class="table" style="width:100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
+      <thead>
+        <tr>
+          <th>停餐類別</th>
+          <th>生效開始日期</th>
+          <th>生效結束日期</th>
+          <th>原因事由</th>
+          <th>證明公文文號</th>
+          <th>核准狀態</th>
+          <th>建立/取消者</th>
+          <th>取消原因</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="suspensionTableBody">
+        <tr>
+          <td colspan="9" style="text-align: center; color: var(--text-muted);">請先選擇學生以載入停餐資料。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 新增停餐 Modal 對話框 -->
+<div class="modal" id="suspensionModal" style="display:none;">
+  <div class="modal-content" style="max-width: 500px;">
+    <span class="modal-close" onclick="closeSuspensionModal()">&times;</span>
+    <h3 style="margin-top: 0; margin-bottom: 20px; color: var(--primary-color);">登記學生長期停餐區間</h3>
+    
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">停餐類別 *</label>
+      <select id="sFormSuspensionType" style="width: 100%;">
+        <option value="meal_suspension">長期停餐 (meal_suspension)</option>
+        <option value="long_term_leave">長期請假 (long_term_leave)</option>
+        <option value="medical">醫療就醫 (medical)</option>
+        <option value="religious">宗教素/活動 (religious)</option>
+        <option value="transferred_pending">轉出待審 (transferred_pending)</option>
+        <option value="other">其他原因 (other)</option>
+      </select>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+      <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">生效開始日 *</label>
+        <input type="date" id="sFormSuspStart" style="width: 100%;">
+      </div>
+      <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+        <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">生效結束日 (選填)</label>
+        <input type="date" id="sFormSuspEnd" style="width: 100%;" placeholder="空白代表持續停餐">
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">停餐描述事由 *</label>
+      <input type="text" id="sFormSuspReason" placeholder="例如：自備便當停餐、出國探親" style="width: 100%;">
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">證明公文/核定文號</label>
+      <input type="text" id="sFormSuspDocNo" placeholder="府教字第...號" style="width: 100%;">
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+      <button class="btn btn-secondary" onclick="closeSuspensionModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitSuspensionForm()">建立長期停餐 (預設草稿)</button>
+    </div>
+  </div>
+</div>
+<script>
+/**
+ * 初始化停餐視圖，載入學生選單
+ */
+function initMealSuspensionView() {
+  var select = document.getElementById('suspStudentSelect');
+  select.innerHTML = '<option value="">請選擇學生...</option>';
+
+  callServer('apiListStudents', { enabled: 'true' })
+    .then(function(students) {
+      students.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s.student_id;
+        opt.innerText = s.student_name + ' (' + (s.student_number || '無學號') + ')';
+        select.appendChild(opt);
+      });
+    });
+}
+
+/**
+ * 載入選定學生之停餐歷史
+ */
+function loadStudentSuspensions() {
+  var studentId = document.getElementById('suspStudentSelect').value;
+  var tbody = document.getElementById('suspensionTableBody');
+  
+  if (!studentId) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">請先選擇學生以載入停餐資料。</td></tr>';
+    return;
+  }
+
+  showLoading('載入停餐紀錄中...');
+  
+  callServer('apiListStudentSuspensions', studentId)
+    .then(function(records) {
+      hideLoading();
+      tbody.innerHTML = '';
+
+      if (records.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">此學生目前無任何停餐登記紀錄。</td></tr>';
+        return;
+      }
+
+      records.forEach(function(r) {
+        var tr = document.createElement('tr');
+        
+        var statusClass = 'badge-secondary';
+        if (r.approval_status === 'approved') statusClass = 'badge-healthy';
+        if (r.approval_status === 'rejected' || r.approval_status === 'cancelled') statusClass = 'badge-blocking';
+        var statusBadge = '<span class="badge ' + statusClass + '">' + r.approval_status + '</span>';
+
+        var typeNames = { meal_suspension: '長期停餐', long_term_leave: '長期請假', medical: '就醫請假', religious: '宗教素', other: '其他' };
+        var typeName = typeNames[r.suspension_type] || r.suspension_type;
+
+        // 操作鍵
+        var actionsHtml = '';
+        if (App.user.role === 'system_admin' || App.user.role === 'lunch_admin') {
+          if (r.approval_status === 'draft') {
+            actionsHtml += '<button class="btn btn-primary" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" onclick="approveSuspension(\'' + r.suspension_id + '\')">核准</button>';
+          }
+          if (r.approval_status === 'approved' && !r.effective_end_date) {
+            actionsHtml += '<button class="btn btn-secondary" style="font-size:0.75rem; padding:4px 8px; margin-right:5px;" onclick="endSuspensionPrompt(\'' + r.suspension_id + '\')">恢復用餐</button>';
+          }
+          if (r.approval_status !== 'cancelled' && r.approval_status !== 'rejected') {
+            actionsHtml += '<button class="btn btn-danger" style="font-size:0.75rem; padding:4px 8px;" onclick="cancelSuspensionPrompt(\'' + r.suspension_id + '\')">取消登記</button>';
+          }
+        } else {
+          actionsHtml = '<span style="color:var(--text-muted);">無</span>';
+        }
+
+        var creatorText = escapeHtml(r.created_by) + (r.cancelled_by ? (' / 取消者：' + escapeHtml(r.cancelled_by)) : '');
+
+        tr.innerHTML = 
+          '<td>' + escapeHtml(typeName) + '</td>' +
+          '<td>' + r.effective_start_date + '</td>' +
+          '<td>' + (r.effective_end_date || '持續停餐中') + '</td>' +
+          '<td>' + escapeHtml(r.reason || '-') + '</td>' +
+          '<td>' + escapeHtml(r.source_document_no || '-') + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>' + creatorText + '</td>' +
+          '<td>' + escapeHtml(r.cancellation_reason || '-') + '</td>' +
+          '<td>' + actionsHtml + '</td>';
+        
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+function openSuspensionModal() {
+  var studentId = document.getElementById('suspStudentSelect').value;
+  if (!studentId) {
+    showToast('請先選取停餐目標學生！', 'warning');
+    return;
+  }
+  
+  // 清空
+  document.getElementById('sFormSuspStart').value = Utils.formatDate(new Date());
+  document.getElementById('sFormSuspEnd').value = '';
+  document.getElementById('sFormSuspReason').value = '';
+  document.getElementById('sFormSuspDocNo').value = '';
+
+  document.getElementById('suspensionModal').style.display = 'flex';
+}
+
+function closeSuspensionModal() {
+  document.getElementById('suspensionModal').style.display = 'none';
+}
+
+/**
+ * 送出新增停餐
+ */
+function submitSuspensionForm() {
+  var studentId = document.getElementById('suspStudentSelect').value;
+  var payload = {
+    student_id: studentId,
+    suspension_type: document.getElementById('sFormSuspensionType').value,
+    effective_start_date: document.getElementById('sFormSuspStart').value,
+    effective_end_date: document.getElementById('sFormSuspEnd').value,
+    reason: document.getElementById('sFormSuspReason').value,
+    source_document_no: document.getElementById('sFormSuspDocNo').value
+  };
+
+  if (!payload.effective_start_date || !payload.reason) {
+    showToast('生效開始日期與停餐描述事由為必填！', 'warning');
+    return;
+  }
+
+  showLoading('建立停餐草稿中...');
+  
+  callServer('apiCreateSuspension', [payload])
+    .then(function() {
+      hideLoading();
+      showToast('長期停餐草稿登記成功！', 'success');
+      closeSuspensionModal();
+      loadStudentSuspensions();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 核准停餐
+ */
+function approveSuspension(suspensionId) {
+  if (!confirm('核准後將正式生效此停餐區間，並影響供餐點名，是否核准？')) return;
+  showLoading('正在核准申請...');
+  callServer('apiApproveSuspension', suspensionId)
+    .then(function() {
+      hideLoading();
+      showToast('停餐登記已成功核准生效！', 'success');
+      loadStudentSuspensions();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 恢復用餐
+ */
+function endSuspensionPrompt(suspensionId) {
+  var endDate = prompt('請輸入恢復用餐的前一天日期 (即停餐生效結束日，格式：YYYY-MM-DD)：', Utils.formatDate(new Date()));
+  if (!endDate) return;
+
+  var reason = prompt('請輸入恢復用餐的原因備註：', '提前結束假期');
+  if (!reason) return;
+
+  showLoading('正在恢復用餐設定...');
+  callServer('apiEndSuspension', [suspensionId, endDate, reason])
+    .then(function() {
+      hideLoading();
+      showToast('恢復用餐設定成功！學生已設定自隔日恢復正常供餐。', 'success');
+      loadStudentSuspensions();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 取消停餐登記
+ */
+function cancelSuspensionPrompt(suspensionId) {
+  var reason = prompt('請填寫取消此長期停餐登記的原因：');
+  if (!reason) {
+    showToast('取消原因為必填，已終止取消作業。', 'warning');
+    return;
+  }
+
+  showLoading('正在取消登記...');
+  callServer('apiCancelSuspension', [suspensionId, reason])
+    .then(function() {
+      hideLoading();
+      showToast('停餐登記已被取消。', 'success');
+      loadStudentSuspensions();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+</script>

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base target="_top">
+    <title>學校午餐停餐、用餐統計與補助申請管理系統</title>
+    <!-- 引入全域樣式 -->
+    <?!= include('src/frontend/Styles') ?>
+  </head>
+  <body>
+    
+    <div class="app-container">
+      
+      <!-- 側邊導覽列 -->
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <span class="sidebar-title">學校午餐管理系統</span>
+          <span class="sidebar-subtitle">停餐、用餐統計與補助申請</span>
+        </div>
+        
+        <div class="sidebar-menu">
+          <!-- 作用中視圖 (Phase 1 啟用) -->
+          <div class="menu-item active" data-view="home" onclick="switchView('home')">
+            <span>🏠</span> 首頁
+          </div>
+          
+          <div class="menu-item" data-view="system_status" onclick="switchView('system_status')">
+            <span>⚕️</span> 系統健康狀態
+          </div>
+          
+          <div class="menu-item" data-view="auth_diagnostic" onclick="switchView('auth_diagnostic')">
+            <span>👤</span> 權限與身份診斷
+          </div>
+
+          <div class="menu-item" data-view="classes" onclick="switchView('classes')">
+            <span>📂</span> 班級與導師管理
+          </div>
+
+          <div class="menu-item" data-view="students" onclick="switchView('students')">
+            <span>🎓</span> 學生名冊管理
+          </div>
+
+          <!-- 啟用功能 (Phase 3) -->
+          <div class="menu-item" data-view="daily_entry" onclick="switchView('daily_entry')">
+            <span>📝</span> 每日停餐登記
+          </div>
+
+          <div class="menu-item" data-view="class_monitor" onclick="switchView('class_monitor')">
+            <span>📊</span> 班級完成狀況
+          </div>
+
+          <div class="menu-item" data-view="calendar" onclick="switchView('calendar')">
+            <span>📅</span> 上課日曆設定
+          </div>
+
+          <div class="menu-item" data-view="suspensions" onclick="switchView('suspensions')">
+            <span>🛑</span> 長期停餐管理
+          </div>
+
+          <!-- 啟用功能 (Phase 4) -->
+          <div class="menu-item" data-view="daily_calc" onclick="switchView('daily_calc')">
+            <span>⚡</span> 每日正式計算
+          </div>
+
+          <div class="menu-item" data-view="monthly_recon" onclick="switchView('monthly_recon')">
+            <span>📊</span> 月度對帳預覽
+          </div>
+
+          <div class="menu-item" data-view="daily_ledger" onclick="switchView('daily_ledger')">
+            <span>📋</span> 用餐明細帳冊
+          </div>
+
+          <div class="menu-item" data-view="funding-calculation" onclick="switchView('funding-calculation')">
+            <span>💰</span> 補助分攤計算
+          </div>
+
+          <div class="menu-item" data-view="funding-allocation-detail" onclick="switchView('funding-allocation-detail')">
+            <span>📋</span> 補助分攤明細
+          </div>
+
+          <div class="menu-item" data-view="monthly-funding-summary" onclick="switchView('monthly-funding-summary')">
+            <span>📊</span> 補助來源彙總
+          </div>
+
+          <div class="menu-item" data-view="month-closing" onclick="switchView('month-closing')">
+            <span>🔒</span> 月結鎖定作業
+          </div>
+
+          <div class="menu-item" data-view="closing-history" onclick="switchView('closing-history')">
+            <span>📜</span> 月結歷史版本
+          </div>
+
+          <div class="menu-item" data-view="reports" onclick="switchView('reports')">
+            <span>📄</span> 補助報表中心
+          </div>
+
+          <div class="menu-item" data-view="rate-migration" onclick="switchView('rate-migration')">
+            <span>🔄</span> 費率規格遷移
+          </div>
+          
+          <div class="menu-item disabled" data-view="audit" title="尚未開放">
+            <span>🕵️</span> 系統異動日誌 <span style="font-size:0.7rem; opacity:0.6;">(尚未開放)</span>
+          </div>
+          
+          <div class="menu-item disabled" data-view="config" title="尚未開放">
+            <span>⚙️</span> 系統全域設定 <span style="font-size:0.7rem; opacity:0.6;">(尚未開放)</span>
+          </div>
+        </div>
+        
+        <div class="sidebar-footer">
+          版本：v5.0 (Phase 5)
+        </div>
+      </div>
+      
+      <!-- 主畫面區域 -->
+      <div class="main-content">
+        
+        <!-- 頂部狀態列 -->
+        <div class="topbar">
+          <div class="topbar-left">
+            <span style="font-weight: bold; color: var(--primary-color);">午餐行政統計系統</span>
+          </div>
+          
+          <div class="topbar-right">
+            <div class="user-info">
+              <div class="user-name"><?= name ?></div>
+              <span class="user-role-badge"><?= role ?></span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); font-family: monospace;">
+              <?= email ?>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 主要視圖切換區 -->
+        <div class="view-container">
+          
+          <!-- 首頁視圖 (Placeholder) -->
+          <div class="view-content" id="view_home">
+            <div class="card" style="text-align: left;">
+              <div class="card-title">歡迎使用學校午餐管理系統</div>
+              <p class="error-card-desc">
+                本系統已完成 **Phase 5：補助分攤計算與正式月結** 的開發。
+                您可以點選左側選單進入「補助分攤計算」、「補助分攤明細」與「月結鎖定作業」等功能。
+              </p>
+            </div>
+          </div>
+          
+          <!-- 系統狀態視圖 -->
+          <div class="view-content" id="view_system_status" style="display:none;">
+            <?!= include('src/frontend/SystemStatus') ?>
+          </div>
+          
+          <!-- 權限與診斷視圖 -->
+          <div class="view-content" id="view_auth_diagnostic" style="display:none;">
+            <?!= include('src/frontend/AuthDiagnostic') ?>
+          </div>
+
+          <!-- 班級管理視圖 -->
+          <div class="view-content" id="view_classes" style="display:none;">
+            <?!= include('src/frontend/ClassManagement') ?>
+          </div>
+
+          <!-- 學生名冊視圖 -->
+          <div class="view-content" id="view_students" style="display:none;">
+            <?!= include('src/frontend/StudentManagement') ?>
+          </div>
+
+          <!-- 每日登記視圖 -->
+          <div class="view-content" id="view_daily_entry" style="display:none;">
+            <?!= include('src/frontend/DailyMealEntry') ?>
+          </div>
+
+          <!-- 班級監控儀表板 -->
+          <div class="view-content" id="view_class_monitor" style="display:none;">
+            <?!= include('src/frontend/LunchDashboard') ?>
+          </div>
+
+          <!-- 上課日曆設定 -->
+          <div class="view-content" id="view_calendar" style="display:none;">
+            <?!= include('src/frontend/CalendarManagement') ?>
+          </div>
+
+          <!-- 長期停餐管理 -->
+          <div class="view-content" id="view_suspensions" style="display:none;">
+            <?!= include('src/frontend/MealSuspensionPeriods') ?>
+          </div>
+
+          <!-- 每日正式計算 -->
+          <div class="view-content" id="view_daily_calc" style="display:none;">
+            <?!= include('src/frontend/DailyCalculation') ?>
+          </div>
+
+          <!-- 月度對帳預覽 -->
+          <div class="view-content" id="view_monthly_recon" style="display:none;">
+            <?!= include('src/frontend/MonthlyReconciliation') ?>
+          </div>
+
+          <!-- 用餐明細帳冊 -->
+          <div class="view-content" id="view_daily_ledger" style="display:none;">
+            <?!= include('src/frontend/DailyLedgerViewer') ?>
+          </div>
+
+          <!-- 補助分攤計算 -->
+          <div class="view-content" id="view_funding-calculation" style="display:none;">
+            <?!= include('src/frontend/FundingCalculation') ?>
+          </div>
+
+          <!-- 補助分攤明細 -->
+          <div class="view-content" id="view_funding-allocation-detail" style="display:none;">
+            <?!= include('src/frontend/FundingAllocationDetail') ?>
+          </div>
+
+          <!-- 月度補助來源彙總 -->
+          <div class="view-content" id="view_monthly-funding-summary" style="display:none;">
+            <?!= include('src/frontend/MonthlyFundingSummary') ?>
+          </div>
+
+          <!-- 月結鎖定作業 -->
+          <div class="view-content" id="view_month-closing" style="display:none;">
+            <?!= include('src/frontend/MonthClosing') ?>
+          </div>
+
+          <!-- 月結歷史版本 -->
+          <div class="view-content" id="view_closing-history" style="display:none;">
+            <?!= include('src/frontend/ClosingHistory') ?>
+          </div>
+
+           <!-- 月結清單 Manifest 檢視 -->
+          <div class="view-content" id="view_closing-manifest" style="display:none;">
+            <?!= include('src/frontend/ClosingManifest') ?>
+          </div>
+
+          <!-- 補助報表中心 -->
+          <div class="view-content" id="view_reports" style="display:none;">
+            <?!= include('src/frontend/ReportCenter') ?>
+          </div>
+
+          <!-- 報表範本管理 -->
+          <div class="view-content" id="view_report-template-management" style="display:none;">
+            <?!= include('src/frontend/ReportTemplateManagement') ?>
+          </div>
+
+          <!-- 報表預覽 -->
+          <div class="view-content" id="view_report-preview" style="display:none;">
+            <?!= include('src/frontend/ReportPreview') ?>
+          </div>
+
+          <!-- 報表產生紀錄 -->
+          <div class="view-content" id="view_report-generation-history" style="display:none;">
+            <?!= include('src/frontend/ReportGenerationHistory') ?>
+          </div>
+
+          <!-- 核准工作流 -->
+          <div class="view-content" id="view_approval-workflow" style="display:none;">
+            <?!= include('src/frontend/ApprovalWorkflow') ?>
+          </div>
+
+          <!-- 正式報表包 -->
+          <div class="view-content" id="view_official-report-package" style="display:none;">
+            <?!= include('src/frontend/OfficialReportPackage') ?>
+          </div>
+
+          <!-- 費率規格遷移 -->
+          <div class="view-content" id="view_rate-migration" style="display:none;">
+            <?!= include('src/frontend/RateMigration') ?>
+          </div>
+          
+        </div>
+        
+      </div>
+      
+    </div>
+
+    <!-- 學生編輯對話框 -->
+    <?!= include('src/frontend/StudentEditDialog') ?>
+    
+    <!-- 補助與班級歷程對話框 -->
+    <?!= include('src/frontend/SubsidyHistoryDialog') ?>
+    
+    <!-- 學生名冊匯入精靈 -->
+    <?!= include('src/frontend/ImportWizard') ?>
+
+    <!-- 讀取遮罩與提示 (全域元件) -->
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner"></div>
+      <div style="font-weight: bold; color: var(--text-main);" id="loadingText">正在通訊中...</div>
+    </div>
+    
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- 引入全域 JS -->
+    <?!= include('src/frontend/Scripts') ?>
+
+
+    <script>
+      // 初始化全域使用者狀態
+      App.user.email = "<?= email ?>";
+      App.user.name = "<?= name ?>";
+      App.user.role = "<?= role ?>";
+
+      window.addEventListener('load', function() {
+        showToast('登入成功，身份角色：' + App.user.role, 'success');
+      });
+    </script>
+  </body>
+</html>

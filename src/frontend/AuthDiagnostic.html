@@ -1,0 +1,144 @@
+<div class="card">
+  <div class="card-title">權限與登入身份診斷 (AuthDiagnostic)</div>
+  <p class="error-card-desc" style="text-align: left; margin-bottom: 20px;">
+    本畫面提供伺服器與當前瀏覽器工作階段之安全認證診斷。用於檢查 Google 帳戶 Email 讀取狀態、執行權限範圍以及底層雲端資源之存取權。
+  </p>
+
+  <div id="diagBlockingAlert" style="display:none;" class="alert-box alert-blocking">
+    <span>🛑 <strong>阻斷性錯誤警告</strong>：系統偵測到您的登入 Email 為空字串。這通常代表應用程式被部署在限制性極高的環境中，或者您的瀏覽器封鎖了授權認證 Cookie。系統將無法以空白 Email 執行任何午餐統計或例外登記操作。請聯繫管理員切換至 <b>USER_ACCESSING</b> 部署模式。</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; text-align: left;">
+    
+    <!-- 診斷組 A: 使用者認證 -->
+    <div class="card" style="margin-bottom:0; padding: 20px;">
+      <h3 style="font-size: 1rem; font-weight:bold; margin-bottom: 15px; color: var(--primary-color);">👤 存取者身份認證</h3>
+      <div class="status-panel">
+        
+        <div class="status-row">
+          <span class="status-label">Active User (存取者)</span>
+          <span class="status-value" id="diagActiveEmail" style="font-weight:bold;">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">Effective User (執行者)</span>
+          <span class="status-value" id="diagEffectiveEmail">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">系統辨識角色 (Role)</span>
+          <span class="status-value" id="diagUserRole">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">登入網域 (Domain)</span>
+          <span class="status-value" id="diagDomain" style="font-family: monospace;">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">臨時識別金鑰 (Key)</span>
+          <span class="status-value" id="diagTempKey" style="font-family: monospace; color: var(--text-muted);">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">授權狀態 (Status)</span>
+          <span class="status-value" id="diagAuthStatus">讀取中...</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 診斷組 B: 雲端資源存取 -->
+    <div class="card" style="margin-bottom:0; padding: 20px;">
+      <h3 style="font-size: 1rem; font-weight:bold; margin-bottom: 15px; color: var(--primary-color);">☁️ 雲端服務與時區檢測</h3>
+      <div class="status-panel">
+        
+        <div class="status-row">
+          <span class="status-label">部署設定方式</span>
+          <span class="status-value" id="diagDeployMode" style="font-weight:bold;">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">資料庫可讀性</span>
+          <span class="status-value" id="diagDbReadable">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">報表資料夾可讀性</span>
+          <span class="status-value" id="diagFolderReadable">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">報表資料夾可寫入</span>
+          <span class="status-value" id="diagFolderWritable">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">Script 系統時區</span>
+          <span class="status-value" id="diagScriptTz">讀取中...</span>
+        </div>
+
+        <div class="status-row">
+          <span class="status-label">Spreadsheet 時區</span>
+          <span class="status-value" id="diagSsTz">讀取中...</span>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/**
+ * 載入並渲染認證診斷
+ */
+function loadAuthDiagnostic() {
+  callServer('apiGetAuthorizationDiagnostic')
+    .then(function(diag) {
+      // 1. 檢查 Email 是否為空字串以顯示阻斷錯誤
+      var alertBox = document.getElementById('diagBlockingAlert');
+      if (!diag.activeUserEmail) {
+        alertBox.style.display = 'block';
+        document.getElementById('diagActiveEmail').innerHTML = '<span style="color: var(--status-blocking); font-weight:bold;">[ 空值 (BLANK) ]</span>';
+      } else {
+        alertBox.style.display = 'none';
+        document.getElementById('diagActiveEmail').innerText = diag.activeUserEmail;
+      }
+
+      // 2. 渲染其他項目
+      document.getElementById('diagEffectiveEmail').innerText = diag.effectiveUserEmail;
+      document.getElementById('diagUserRole').innerHTML = '<span class="user-role-badge">' + diag.currentUserRole + '</span>';
+      document.getElementById('diagDomain').innerText = diag.currentDomain || 'N/A';
+      document.getElementById('diagTempKey').innerText = diag.temporaryUserKey;
+      
+      var authBadge = document.getElementById('diagAuthStatus');
+      if (diag.authorizationStatus === 'AUTHORIZED') {
+        authBadge.innerHTML = '<span class="badge badge-healthy">已授權 (Authorized)</span>';
+      } else {
+        authBadge.innerHTML = '<span class="badge badge-blocking">未授權 (No Email)</span>';
+      }
+
+      // 3. 雲端資源狀態
+      document.getElementById('diagDeployMode').innerText = diag.deploymentMode;
+      document.getElementById('diagScriptTz').innerText = diag.scriptTimeZone;
+      document.getElementById('diagSsTz').innerText = diag.spreadsheetTimeZone;
+
+      document.getElementById('diagDbReadable').innerHTML = diag.spreadsheetReadable
+        ? '<span class="badge badge-healthy">可讀取</span>'
+        : '<span class="badge badge-blocking">無法連線</span>';
+
+      document.getElementById('diagFolderReadable').innerHTML = diag.reportFolderReadable
+        ? '<span class="badge badge-healthy">可讀取</span>'
+        : '<span class="badge badge-blocking">無法連線</span>';
+
+      document.getElementById('diagFolderWritable').innerHTML = diag.reportFolderWritable
+        ? '<span class="badge badge-healthy">可寫入</span>'
+        : '<span class="badge badge-blocking">寫入失敗</span>';
+
+    })
+    .catch(function(err) {
+      showToast('載入認證診斷資料失敗: ' + err.message, 'error');
+    });
+}
+</script>

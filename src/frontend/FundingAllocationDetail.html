@@ -1,0 +1,153 @@
+<!-- FundingAllocationDetail.html -->
+<div id="funding-allocation-detail-view" class="subpage-view hidden">
+  <div class="view-header">
+    <h2 class="view-title">🔍 補助分攤明細帳冊 (Ledger)</h2>
+    <p class="view-desc">調閱逐日、逐生、各資金來源（公所、縣府、自付等）的最細粒度分攤紀錄。</p>
+  </div>
+
+  <!-- 篩選列 -->
+  <div class="card my-3">
+    <div class="grid grid-cols-4 gap-4 align-end">
+      <div>
+        <label for="detail-month-select" class="form-label text-sm font-semibold">選擇月份：</label>
+        <input type="month" id="detail-month-select" class="form-control">
+      </div>
+      <div>
+        <label for="detail-class-select" class="form-label text-sm font-semibold">篩選班級：</label>
+        <select id="detail-class-select" class="form-control">
+          <option value="">載入中...</option>
+        </select>
+      </div>
+      <div>
+        <label for="detail-source-select" class="form-label text-sm font-semibold">資金來源：</label>
+        <select id="detail-source-select" class="form-control">
+          <option value="">全部來源</option>
+          <option value="township">公所補助</option>
+          <option value="county">縣府補助</option>
+          <option value="school">學校補助</option>
+          <option value="self_pay">自付額</option>
+          <option value="other">其他</option>
+        </select>
+      </div>
+      <div>
+        <button id="btn-query-detail" class="btn btn-primary w-full">🔍 搜尋明細</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 明細資料表 -->
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table" id="allocation-detail-table">
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>班級</th>
+            <th>學生姓名 (去識別)</th>
+            <th>補助身分</th>
+            <th>資金來源</th>
+            <th class="text-right">餐費總額</th>
+            <th>分攤比例/金額</th>
+            <th class="text-right">分攤金額 (元)</th>
+            <th class="text-right">尾差調整</th>
+            <th class="text-right">最終實扣</th>
+            <th>版本</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="11" class="text-center text-muted">請點擊「搜尋明細」載入資料。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    var monthInput = document.getElementById('detail-month-select');
+    var classSelect = document.getElementById('detail-class-select');
+    var sourceSelect = document.getElementById('detail-source-select');
+    var btnQuery = document.getElementById('btn-query-detail');
+
+    // 預設當前月份
+    var today = new Date();
+    monthInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
+
+    btnQuery.addEventListener('click', loadAllocationDetail);
+
+    // 載入班級選單
+    google.script.run
+      .withSuccessHandler(function(res) {
+        classSelect.innerHTML = '<option value="">全部班級</option>';
+        res.forEach(function(c) {
+          classSelect.innerHTML += '<option value="' + c.class_id + '">' + c.class_name + '</option>';
+        });
+      })
+      .apiListClasses();
+
+    function loadAllocationDetail() {
+      var ym = monthInput.value;
+      if (!ym) return;
+
+      var tbody = document.querySelector('#allocation-detail-table tbody');
+      tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">⏳ 正在檢索最細粒度明細帳冊...</td></tr>';
+
+      var filters = {
+        year_month: ym,
+        class_id: classSelect.value,
+        funding_source: sourceSelect.value
+      };
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          tbody.innerHTML = '';
+          if (res.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted">未找到符合條件的補助分攤紀錄。</td></tr>';
+            return;
+          }
+
+          var sourceNames = {
+            township: '公所補助',
+            county: '縣府補助',
+            school: '學校補助',
+            self_pay: '自付額',
+            other: '其他'
+          };
+
+          res.forEach(function(r) {
+            var tr = document.createElement('tr');
+            
+            var ruleDesc = '';
+            if (r.calculation_type === 'fixed_amount') {
+              ruleDesc = '固定 $' + (r.fixed_amount_minor / 100).toFixed(2);
+            } else {
+              ruleDesc = (r.rate_basis_points / 100).toFixed(2) + '%';
+            }
+
+            tr.innerHTML = '<td>' + r.date + '</td>' +
+                         '<td>' + (r.class_code || '---') + '</td>' +
+                         '<td>' + r.student_name_masked + '</td>' +
+                         '<td><span class="badge badge-secondary">' + r.subsidy_category_id + '</span></td>' +
+                         '<td><b>' + (sourceNames[r.funding_source] || r.funding_source) + '</b></td>' +
+                         '<td class="text-right">$' + (r.gross_amount_minor / 100).toFixed(2) + '</td>' +
+                         '<td>' + ruleDesc + '</td>' +
+                         '<td class="text-right">$' + (r.rounded_amount_minor / 100).toFixed(2) + '</td>' +
+                         '<td class="text-right text-warning">$' + (r.residual_adjustment_minor / 100).toFixed(2) + '</td>' +
+                         '<td class="text-right font-semibold">$' + (r.final_amount_minor / 100).toFixed(2) + '</td>' +
+                         '<td>v' + r.calculation_version + '</td>';
+            tbody.appendChild(tr);
+          });
+        })
+        .withFailureHandler(function(err) {
+          tbody.innerHTML = '<tr><td colspan="11" class="text-center text-danger">🛑 無存取權限或載入明細失敗: ' + err.message + '</td></tr>';
+        })
+        .apiListFundingAllocations(filters);
+    }
+
+    window.addEventListener('hashchange', function() {
+      if (location.hash === '#funding-allocation-detail') {
+        loadAllocationDetail();
+      }
+    });
+  })();
+</script>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base target="_top">
+    <title>存取受限 - 學校午餐管理系統</title>
+    <?!= include('src/frontend/Styles') ?>
+    <style>
+      .error-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background-color: #f3f4f6;
+        padding: 20px;
+      }
+      .error-card {
+        max-width: 550px;
+        width: 100%;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+        padding: 40px;
+        text-align: center;
+        border: 1px solid #f3f4f6;
+      }
+      .error-avatar {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background-color: #fee2e2;
+        color: #ef4444;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin-bottom: 24px;
+      }
+      .avatar-warn {
+        background-color: #fef3c7;
+        color: #d97706;
+      }
+      .error-card-title {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-bottom: 12px;
+        color: #111827;
+      }
+      .error-card-desc {
+        color: #4b5563;
+        font-size: 0.95rem;
+        margin-bottom: 24px;
+        line-height: 1.6;
+      }
+      .info-box {
+        background-color: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 16px;
+        text-align: left;
+        margin-bottom: 24px;
+        font-size: 0.9rem;
+      }
+      .info-item {
+        margin-bottom: 8px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .info-item:last-child {
+        margin-bottom: 0;
+      }
+      .info-label {
+        font-weight: bold;
+        color: #374151;
+      }
+      .info-val {
+        color: #6b7280;
+        font-family: monospace;
+      }
+      .advice-list {
+        text-align: left;
+        background-color: #fef2f2;
+        border: 1px solid #fca5a5;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 24px;
+        color: #991b1b;
+        font-size: 0.88rem;
+      }
+      .advice-list-warn {
+        background-color: #fffbeb;
+        border-color: #fcd34d;
+        color: #92400e;
+      }
+      .advice-title {
+        font-weight: bold;
+        margin-bottom: 8px;
+      }
+      .advice-item {
+        margin-left: 20px;
+        margin-bottom: 4px;
+        list-style-type: decimal;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="error-wrapper">
+      <div class="error-card">
+        
+        <? if (errorType === 'NO_EMAIL') { ?>
+          <div class="error-avatar">🛑</div>
+          <h2 class="error-card-title">無法取得登入身份 (Email)</h2>
+          <p class="error-card-desc">
+            系統無法安全偵測到您的 Google 帳號身份。這通常是由於瀏覽器未授權、使用了隱私瀏覽（無痕模式）或者網頁應用程式部署權限設定所導致的。
+          </p>
+          
+          <div class="advice-list">
+            <div class="advice-title">🛠️ 阻斷性診斷與部署調整建議：</div>
+            <ul>
+              <li class="advice-item">請勿在無痕模式或第三方 Cookie 被阻擋的瀏覽器環境中開啟此系統。</li>
+              <li class="advice-item"><strong>系統管理員調整建議</strong>：請將 Web App 的部署設定變更為：
+                <br><code style="background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px; font-family: monospace;">將「執行為 (Execute as)」設為：存取網頁的使用者 (User accessing the web app)</code>
+                <br>這將強制要求每個存取者在瀏覽時通過 Google OAuth 授權，即可順利讀取其 Email。
+              </li>
+            </ul>
+          </div>
+        <? } else if (errorType === 'NOT_INITIALIZED') { ?>
+          <div class="error-avatar avatar-warn">⚠️</div>
+          <h2 class="error-card-title">系統維護中 / 尚未初始化</h2>
+          <p class="error-card-desc">
+            本學校午餐管理系統已經成功架設，但目前尚未進行資料庫資料表與設定之初始化作業。請聯繫您的系統管理員完成初次設定。
+          </p>
+          
+          <div class="info-box">
+            <div class="info-item">
+              <span class="info-label">您的身份 Email:</span>
+              <span class="info-val"><?= email ?></span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">系統狀態:</span>
+              <span class="info-val" style="color: var(--status-warning);">尚未初始化</span>
+            </div>
+          </div>
+          
+          <div class="advice-list advice-list-warn">
+            <div class="advice-title">💡 如何完成初始化？</div>
+            <p style="font-size: 0.85rem;">僅有系統部署者 (Bootstrapper) 或被指派為最高管理員的帳號，在登入後能看見初始化引導精靈並執行建表作業。</p>
+          </div>
+        <? } else { ?>
+          <div class="error-avatar">🚫</div>
+          <h2 class="error-card-title">權限不足 / 帳號未授權</h2>
+          <p class="error-card-desc">
+            您的 Google 帳號尚未被加入午餐管理系統的使用者名冊中，或者您的帳號目前已被管理員設為「停用」。
+          </p>
+          
+          <div class="info-box">
+            <div class="info-item">
+              <span class="info-label">您的身份 Email:</span>
+              <span class="info-val"><?= email ?></span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">帳號狀態:</span>
+              <span class="info-val" style="color: var(--status-blocking);">未授權 / 已停用</span>
+            </div>
+          </div>
+          
+          <p class="error-card-desc" style="font-size: 0.88rem; color: var(--text-muted);">
+            如果您是本校的導師、行政人員或會計，請聯繫**午餐管理人員**或**系統管理員**，請他們至「系統設定 -> 帳號管理」中新增您的 Email 並啟用權限。
+          </p>
+        <? } ?>
+        
+        <button class="btn btn-secondary" onclick="window.location.reload();" style="width: 100%;">重新整理頁面</button>
+      </div>
+    </div>
+  </body>
+</html>

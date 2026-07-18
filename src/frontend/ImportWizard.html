@@ -1,0 +1,127 @@
+<!-- 學生名冊匯入精靈 Modal 對話框 (Step 1: Upload / Paste) -->
+<div class="modal" id="studentImportModal" style="display:none;">
+  <div class="modal-content" style="max-width: 900px; padding: 25px;">
+    <span class="modal-close" onclick="closeImportWizard()">&times;</span>
+    <h3 style="margin-top: 0; margin-bottom: 10px; color: var(--primary-color);">學生名冊大宗貼上匯入精靈</h3>
+    
+    <!-- 匯入流程進度列 -->
+    <div style="display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 15px;">
+      <div style="font-weight: bold; color: var(--primary-color);">Step 1: 貼上與上傳</div>
+      <div style="color: var(--text-muted);">Step 2: 正規化與預覽</div>
+      <div style="color: var(--text-muted);">Step 3: 匯入提交結果</div>
+    </div>
+
+    <!-- 精靈本體 1: 貼上區 -->
+    <div id="importStep1">
+      <p style="text-align: left; font-size: 0.85rem; color: var(--text-muted);">
+        📋 <strong>貼上說明</strong>：請直接由 Excel、Google Sheets 或 CSV 複製全體欄位與資料列，並整欄貼在下方文字欄中（系統會自動識別 Tab 或逗號分隔符）。<br>
+        列首必須包含對應別名標題，例如：<b>「學號、學生姓名、班級、座號、補助身分、膳食類別、轉入日期、備註」</b>。
+      </p>
+
+      <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 15px; text-align: left; margin-bottom: 15px;">
+        <div>
+          <div class="form-group" style="margin-bottom: 10px;">
+            <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">匯入目標學年度 *</label>
+            <input type="number" id="importSchoolYear" value="115" style="width: 100%;">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">來源說明/說明檔名</label>
+            <input type="text" id="importFilename" placeholder="如：115一網名冊.csv" style="width: 100%;">
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column;">
+          <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">複製文字貼上區 *</label>
+          <textarea id="importRawText" rows="6" placeholder="學號&#9;學生姓名&#9;班級&#9;座號&#9;補助身分&#9;膳食類別&#9;轉入日期&#10;S115001&#9;王大明&#9;G1C1&#9;1&#9;一般學生&#9;葷食&#9;115/09/01" style="width: 100%; flex: 1; padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); font-family: monospace; font-size: 0.8rem;"></textarea>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeImportWizard()">取消</button>
+        <button class="btn btn-primary" onclick="processImportParse()">解析並進入預覽</button>
+      </div>
+    </div>
+
+    <!-- 精靈本體 2: 預覽區 (動態加載 ImportPreview.html) -->
+    <div id="importStep2" style="display:none;">
+      <?!= include('src/frontend/ImportPreview') ?>
+    </div>
+
+    <!-- 精靈本體 3: 結果區 (動態加載 ImportResult.html) -->
+    <div id="importStep3" style="display:none;">
+      <?!= include('src/frontend/ImportResult') ?>
+    </div>
+
+  </div>
+</div>
+
+<script>
+var ImportCache = {
+  schoolYear: 115,
+  originalFilename: '',
+  payloadHash: '',
+  validatedRows: []
+};
+
+function openImportWizard() {
+  document.getElementById('studentImportModal').style.display = 'flex';
+  
+  // 初始化步驟
+  document.getElementById('importStep1').style.display = 'block';
+  document.getElementById('importStep2').style.display = 'none';
+  document.getElementById('importStep3').style.display = 'none';
+  
+  document.getElementById('importRawText').value = '';
+  document.getElementById('importFilename').value = '';
+}
+
+function closeImportWizard() {
+  document.getElementById('studentImportModal').style.display = 'none';
+  loadStudentsList(); // 關閉後重新載入學生名冊
+}
+
+/**
+ * 進行文字解析與後端驗證 (觸發 Step 1 往 Step 2 推進)
+ */
+function processImportParse() {
+  var text = document.getElementById('importRawText').value;
+  var yr = document.getElementById('importSchoolYear').value;
+  var filename = document.getElementById('importFilename').value || '手動貼上文字';
+
+  if (!text.trim()) {
+    showToast('請先貼上資料文字欄！', 'warning');
+    return;
+  }
+  if (!yr) {
+    showToast('請輸入匯入目標學年度！', 'warning');
+    return;
+  }
+
+  showLoading('正在解析欄位與對應中...');
+  
+  callServer('apiParseStudentImport', [text, filename])
+    .then(function(parsedRows) {
+      showLoading('解析成功！正在針對 ' + parsedRows.length + ' 筆資料進行資料庫校驗與重複性分析...');
+      
+      ImportCache.schoolYear = yr;
+      ImportCache.originalFilename = filename;
+
+      return callServer('apiValidateStudentImport', [parsedRows, yr]);
+    })
+    .then(function(previewResult) {
+      hideLoading();
+      ImportCache.payloadHash = previewResult.payloadHash;
+      ImportCache.validatedRows = previewResult.rows;
+
+      // 轉換視圖到 Step 2
+      document.getElementById('importStep1').style.display = 'none';
+      document.getElementById('importStep2').style.display = 'block';
+      
+      // 呼叫 ImportPreview.html 中定義的渲染函式
+      renderImportPreview(previewResult);
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast('匯入解析失敗: ' + err.message, 'error');
+    });
+}
+</script>

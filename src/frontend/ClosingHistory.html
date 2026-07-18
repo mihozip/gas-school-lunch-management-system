@@ -1,0 +1,116 @@
+<!-- ClosingHistory.html -->
+<div id="closing-history-view" class="subpage-view hidden">
+  <div class="view-header">
+    <h2 class="view-title">📜 月結歷史版本追蹤 (History)</h2>
+    <p class="view-desc">追蹤每個月份所有的月結版號、解鎖原因及廢棄舊版本 (Superseded) 的歷史軌跡。</p>
+  </div>
+
+  <div class="card my-3">
+    <div class="flex gap-4 align-end">
+      <div style="flex: 1;">
+        <label for="history-month-select" class="form-label text-sm font-semibold">選擇月份：</label>
+        <input type="month" id="history-month-select" class="form-control">
+      </div>
+      <div>
+        <button id="btn-query-history" class="btn btn-primary">🔍 查詢歷史版本</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table" id="closing-history-table">
+        <thead>
+          <tr>
+            <th>月結 ID</th>
+            <th>版本號</th>
+            <th>狀態</th>
+            <th class="text-right">餐數總計</th>
+            <th class="text-right">餐費總額 (元)</th>
+            <th class="text-right">分攤總額 (元)</th>
+            <th>建立人員</th>
+            <th>月結核銷時間</th>
+            <th>解鎖原因</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="10" class="text-center text-muted">請點擊「查詢歷史版本」載入資料。</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    var monthInput = document.getElementById('history-month-select');
+    var btnQuery = document.getElementById('btn-query-history');
+
+    var today = new Date();
+    monthInput.value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
+
+    btnQuery.addEventListener('click', loadClosingHistory);
+
+    function loadClosingHistory() {
+      var ym = monthInput.value;
+      if (!ym) return;
+
+      var tbody = document.querySelector('#closing-history-table tbody');
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">⏳ 正在檢索月結變更歷史...</td></tr>';
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          tbody.innerHTML = '';
+          if (res.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">該月份尚無任何月結運算版本。</td></tr>';
+            return;
+          }
+
+          var statusBadges = {
+            draft: '<span class="badge badge-secondary">草稿</span>',
+            closed: '<span class="badge badge-success">🔐 已鎖定</span>',
+            reopened: '<span class="badge badge-danger">🔓 已解鎖</span>',
+            superseded: '<span class="badge badge-muted">已廢棄</span>'
+          };
+
+          res.forEach(function(r) {
+            if (r.year_month !== ym) return; // 過濾非指定月份
+
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td><span class="font-mono text-sm">' + r.closing_id + '</span></td>' +
+                         '<td>v' + r.closing_version + '</td>' +
+                         '<td>' + (statusBadges[r.status] || r.status) + '</td>' +
+                         '<td class="text-right">' + r.meal_count_total + ' 餐</td>' +
+                         '<td class="text-right">$' + (r.gross_amount_minor / 100).toFixed(2) + '</td>' +
+                         '<td class="text-right">$' + (r.allocated_amount_minor / 100).toFixed(2) + '</td>' +
+                         '<td>' + r.prepared_by + '</td>' +
+                         '<td>' + (r.closed_at || '---') + '</td>' +
+                         '<td class="text-warning text-sm" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + (r.reopen_reason || '') + '">' + (r.reopen_reason || '---') + '</td>' +
+                         '<td>' +
+                           '<button class="btn btn-sm btn-outline-primary btn-view-manifest" data-id="' + r.closing_id + '">📄 清單</button>' +
+                         '</td>';
+            tbody.appendChild(tr);
+          });
+
+          // 綁定檢視清單事件
+          tbody.querySelectorAll('.btn-view-manifest').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              var cid = this.getAttribute('data-id');
+              location.hash = '#closing-manifest?id=' + cid;
+            });
+          });
+        })
+        .withFailureHandler(function(err) {
+          tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger">載入歷史失敗: ' + err.message + '</td></tr>';
+        })
+        .apiListClosingHistory(ym);
+    }
+
+    window.addEventListener('hashchange', function() {
+      if (location.hash === '#closing-history') {
+        loadClosingHistory();
+      }
+    });
+  })();
+</script>

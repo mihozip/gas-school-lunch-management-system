@@ -1,0 +1,361 @@
+<div class="card" id="dailyCalcView">
+  <div class="card-title">每日餐數正式計算與排程管理</div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left; margin-bottom: 25px;">
+    
+    <!-- 每日計算觸發面板 -->
+    <div style="background-color: #f9fafb; border: 1px solid var(--border-color); padding: 18px; border-radius: 8px;">
+      <h3 style="margin-top:0; margin-bottom:15px; color:var(--primary-color); font-size:1.05rem;">⚡ 手動執行每日計算</h3>
+      
+      <div style="display: flex; gap: 10px; align-items: flex-end; margin-bottom: 15px;">
+        <div style="flex: 1;">
+          <label style="font-weight: bold; display: block; margin-bottom: 5px;">選擇計算日期</label>
+          <input type="date" id="calcTargetDate" style="width: 100%; padding: 6px 12px;">
+        </div>
+        <button class="btn btn-primary" onclick="runManualCalculation()">🚀 開始計算</button>
+      </div>
+
+      <div style="font-size:0.82rem; color:var(--text-muted); line-height: 1.5;">
+        計算時將依序執行：
+        <ol style="margin: 5px 0 0 15px; padding: 0;">
+          <li>檢查 SchoolDays 是否存在且日期唯一；</li>
+          <li>回溯 StudentClassHistory 及 StudentSubsidyHistory 判定學籍身分；</li>
+          <li>比對 MealSuspensionPeriods 及 MealExceptions 排除扣減；</li>
+          <li>寫入 DailyMealLedger 用餐帳冊與 DailyMealSummary 統計表。</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- 定時排程管理面板 -->
+    <div style="background-color: #f9fafb; border: 1px solid var(--border-color); padding: 18px; border-radius: 8px;">
+      <h3 style="margin-top:0; margin-bottom:15px; color:var(--primary-color); font-size:1.05rem;">⏰ 定時排程統計管理</h3>
+      
+      <div style="margin-bottom: 15px;">
+        當前排程時段：<b>每日 <span id="lblTriggerHour">10</span>:00 區間</b> (於截止 09:00 後執行)
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+        <button class="btn btn-primary" onclick="installCalculationTrigger()">🔔 啟用每日自動計算</button>
+        <button class="btn btn-danger" onclick="removeCalculationTrigger()">🔕 停用自動計算</button>
+      </div>
+
+      <div style="font-size:0.85rem; padding: 8px; border-radius: 4px; border: 1px dashed var(--border-color);" id="lblTriggerStatus">
+        檢查專案排程中...
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 計算歷史紀錄明細 -->
+  <div style="text-align: left; margin-bottom: 25px;">
+    <h3 style="color: var(--primary-color); font-size:1.05rem; margin-bottom: 12px;">📋 用餐統計計算歷程 (Calculation Runs)</h3>
+    <div style="overflow-x: auto;">
+      <table class="table" style="width: 100%; font-size: 0.85rem;">
+        <thead>
+          <tr>
+            <th>運算 Run ID</th>
+            <th>類型</th>
+            <th>計算區間</th>
+            <th>版本</th>
+            <th>狀態</th>
+            <th>來源雜湊 (Source Hash)</th>
+            <th>Ledger 筆數</th>
+            <th>問題數</th>
+            <th>執行時間</th>
+            <th>是否當前</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="calcRunsTableBody">
+          <tr>
+            <td colspan="11" style="text-align: center; color: var(--text-muted);">正在讀取計算歷程...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 計算異常狀況 Trace (Issues) -->
+  <div style="text-align: left;">
+    <h3 style="color: var(--status-blocking); font-size:1.05rem; margin-bottom: 12px;">⚠️ 待修正運算異常警告 (Calculation Issues)</h3>
+    <div style="overflow-x: auto;">
+      <table class="table" style="width: 100%; font-size: 0.85rem;">
+        <thead>
+          <tr>
+            <th>日期</th>
+            <th>嚴重度</th>
+            <th>異常碼</th>
+            <th>訊息</th>
+            <th>來源工作表</th>
+            <th>狀態</th>
+            <th>處理說明</th>
+            <th>核結操作</th>
+          </tr>
+        </thead>
+        <tbody id="calcIssuesTableBody">
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--text-muted);">無任何未處理的運算異常。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Calculation Run Detail Modal -->
+<div class="modal" id="runDetailModal" style="display:none;">
+  <div class="modal-content" style="max-width: 600px;">
+    <span class="modal-close" onclick="closeRunDetailModal()">&times;</span>
+    <h3 style="margin-top: 0; color: var(--primary-color);">計算批次詳細資訊</h3>
+    
+    <div style="text-align: left; font-size: 0.88rem; line-height: 1.6;" id="runDetailContent">
+      <!-- JS 動態生成 -->
+    </div>
+    
+    <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+      <button class="btn btn-secondary" onclick="closeRunDetailModal()">關閉</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/**
+ * 初始化
+ */
+function initDailyCalcView() {
+  document.getElementById('calcTargetDate').value = Utils.formatDate(new Date());
+  
+  loadCalculationRuns();
+  loadCalculationIssues();
+  checkTriggerStatus();
+}
+
+/**
+ * 載入計算批次
+ */
+function loadCalculationRuns() {
+  callServer('apiListCalculationRuns', {})
+    .then(function(runs) {
+      var tbody = document.getElementById('calcRunsTableBody');
+      tbody.innerHTML = '';
+
+      if (runs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-muted);">目前尚無任何計算歷程。</td></tr>';
+        return;
+      }
+
+      // 按開始時間反向排序
+      runs.sort(function(a, b) { return b.started_at.localeCompare(a.started_at); });
+
+      runs.forEach(function(r) {
+        var tr = document.createElement('tr');
+        
+        var statusBadge = '';
+        if (r.status === 'completed') statusBadge = '<span class="badge badge-healthy">完成</span>';
+        else if (r.status === 'completed_with_warning') statusBadge = '<span class="badge badge-warning">完成 (含警告)</span>';
+        else if (r.status === 'failed') statusBadge = '<span class="badge badge-blocking">失敗</span>';
+        else statusBadge = '<span class="badge badge-secondary">' + r.status + '</span>';
+
+        var typeNames = { daily: '單日正式', date_range: '批次區間', monthly_preview: '月度預覽' };
+
+        tr.innerHTML = 
+          '<td>' + r.calculation_run_id.substring(0, 15) + '...</td>' +
+          '<td>' + (typeNames[r.calculation_type] || r.calculation_type) + '</td>' +
+          '<td>' + r.scope_start_date + ' ~ ' + r.scope_end_date + '</td>' +
+          '<td>v' + r.calculation_version + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td><code style="font-size:0.75rem;">' + (r.source_hash ? r.source_hash.substring(0, 10) : '-') + '...</code></td>' +
+          '<td>' + r.ledger_count + '</td>' +
+          '<td>' + r.issue_count + '</td>' +
+          '<td>' + r.started_at + '</td>' +
+          '<td>' + (r.is_current === true || r.is_current === 'TRUE' ? '⭐ 是' : '否') + '</td>' +
+          '<td><button class="btn btn-secondary" style="font-size:0.75rem; padding:4px 8px;" onclick="viewRunDetail(\'' + r.calculation_run_id + '\')">明細</button></td>';
+        
+        tbody.appendChild(tr);
+      });
+    });
+}
+
+/**
+ * 載入 Issues
+ */
+function loadCalculationIssues() {
+  callServer('apiListCalculationIssues', { status: 'open' })
+    .then(function(issues) {
+      var tbody = document.getElementById('calcIssuesTableBody');
+      tbody.innerHTML = '';
+
+      if (issues.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted);">無任何待處理的異常警告。</td></tr>';
+        return;
+      }
+
+      issues.forEach(function(i) {
+        var tr = document.createElement('tr');
+        
+        var sevBadge = i.severity === 'blocking' 
+          ? '<span class="badge badge-blocking">阻斷 (blocking)</span>' 
+          : '<span class="badge badge-warning">警告 (warning)</span>';
+
+        var btnAction = App.user.role === 'system_admin'
+          ? '<button class="btn btn-secondary" style="font-size:0.75rem; padding:4px 8px;" onclick="resolveIssuePrompt(\'' + i.issue_id + '\')">核結/重算</button>'
+          : '<span style="color:var(--text-muted);">限最高管理員</span>';
+
+        tr.innerHTML = 
+          '<td>' + i.date + '</td>' +
+          '<td>' + sevBadge + '</td>' +
+          '<td><code>' + i.issue_code + '</code></td>' +
+          '<td>' + escapeHtml(i.message) + '</td>' +
+          '<td>' + i.source_sheet + '</td>' +
+          '<td>' + i.status + '</td>' +
+          '<td>' + escapeHtml(i.resolution_note || '-') + '</td>' +
+          '<td>' + btnAction + '</td>';
+        
+        tbody.appendChild(tr);
+      });
+    });
+}
+
+/**
+ * 執行手動重新計算
+ */
+function runManualCalculation() {
+  var dateStr = document.getElementById('calcTargetDate').value;
+  if (!dateStr) return;
+
+  showLoading('正在執行每日餐數重新計算...');
+  
+  callServer('apiCalculateDate', dateStr)
+    .then(function(res) {
+      hideLoading();
+      showToast('計算順利完成！版本：v' + res.version + '，產生帳冊：' + res.ledgerCount + ' 筆。', 'success');
+      loadCalculationRuns();
+      loadCalculationIssues();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+      loadCalculationRuns();
+      loadCalculationIssues();
+    });
+}
+
+/**
+ * 檢視 Run 明細
+ */
+function viewRunDetail(runId) {
+  showLoading('載入批次明細中...');
+  
+  callServer('apiGetCalculationRun', runId)
+    .then(function(r) {
+      hideLoading();
+      document.getElementById('runDetailModal').style.display = 'flex';
+      
+      var div = document.getElementById('runDetailContent');
+      div.innerHTML = 
+        '<b>批次 Run ID：</b>' + r.calculation_run_id + '<br>' +
+        '<b>計算類型：</b>' + r.calculation_type + '<br>' +
+        '<b>日期範圍：</b>' + r.scope_start_date + ' 至 ' + r.scope_end_date + '<br>' +
+        '<b>計算版本：</b>v' + r.calculation_version + '<br>' +
+        '<b>狀態 Badge：</b>' + r.status + '<br>' +
+        '<b>來源穩定雜湊：</b><code style="font-size:0.8rem;">' + r.source_hash + '</code><br>' +
+        '<b>Ledger 寫入數：</b>' + r.ledger_count + ' 筆<br>' +
+        '<b>Summary 彙總數：</b>' + r.summary_count + ' 筆<br>' +
+        '<b>異常問題數：</b>' + r.issue_count + ' 筆<br>' +
+        '<b>執行人員 Email：</b>' + r.started_by + '<br>' +
+        '<b>啟動時間：</b>' + r.started_at + '<br>' +
+        '<b>完成時間：</b>' + (r.completed_at || '-') + '<br>' +
+        '<b>失敗時間：</b>' + (r.failed_at || '-') + '<br>' +
+        '<b>失敗錯誤碼：</b><code>' + (r.error_code || 'none') + '</code><br>' +
+        '<b>失敗訊息：</b><span style="color:var(--status-blocking);">' + (r.error_message || '-') + '</span>';
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+function closeRunDetailModal() {
+  document.getElementById('runDetailModal').style.display = 'none';
+}
+
+/**
+ * 解決異常並觸發重算
+ */
+function resolveIssuePrompt(issueId) {
+  var note = prompt('請輸入核結說明事由 (已修正來源資料)：');
+  if (note === null) return;
+  if (note.trim() === '') {
+    showToast('核結說明不得為空！', 'warning');
+    return;
+  }
+
+  showLoading('核結問題並重新計算中...');
+  
+  callServer('apiResolveCalculationIssue', [issueId, note])
+    .then(function() {
+      // 成功核結後重新載入
+      showToast('問題核結成功。', 'success');
+      loadCalculationIssues();
+      loadCalculationRuns();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 檢查排程狀態
+ */
+function checkTriggerStatus() {
+  callServer('apiListCalculationTriggers', {})
+    .then(function(list) {
+      var active = list.filter(function(x) { return x.handler === 'runScheduledDailyCalculation'; });
+      var lbl = document.getElementById('lblTriggerStatus');
+      
+      if (active.length > 0) {
+        lbl.innerHTML = '🟢 自動計算已啟用 (Trigger ID: ' + active[0].id.substring(0, 10) + '...)';
+        lbl.style.color = 'var(--status-healthy)';
+      } else {
+        lbl.innerHTML = '🔴 自動計算未啟用 (暫無 Trigger)';
+        lbl.style.color = 'var(--status-blocking)';
+      }
+    });
+}
+
+/**
+ * 安裝排程
+ */
+function installCalculationTrigger() {
+  showLoading('啟用排程中...');
+  callServer('apiInstallDailyCalculationTrigger', {})
+    .then(function(res) {
+      hideLoading();
+      showToast('排程啟用成功！每日將於 ' + res.hour + ':00 進行自動運算。', 'success');
+      checkTriggerStatus();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 移除排程
+ */
+function removeCalculationTrigger() {
+  showLoading('停用排程中...');
+  callServer('apiRemoveDailyCalculationTrigger', {})
+    .then(function(res) {
+      hideLoading();
+      showToast('排程已移除停用。', 'success');
+      checkTriggerStatus();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+</script>

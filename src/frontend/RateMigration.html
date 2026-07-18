@@ -1,0 +1,61 @@
+<!-- RateMigration.html -->
+<div class="card">
+  <div class="card-title">🔄 補助費率規格與 Basis Points 遷移</div>
+  <p class="error-card-desc">
+    本模組提供補助規則之費率格式一次性遷移至 Basis Points 萬分比格式（基數 10000），並支持安全回滾與預覽校驗。
+  </p>
+  
+  <div style="margin-top: 15px; display: flex; gap: 8px;">
+    <button class="btn btn-secondary" onclick="switchView('reports')">↩️ 返回報表中心</button>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">預覽與執行遷移</div>
+  <div style="margin-top: 15px;">
+    <button class="btn btn-secondary" onclick="previewRateMigration()">🔍 1. 產生遷移預覽</button>
+    <button class="btn btn-primary" onclick="validateRateMigration()">🛡️ 2. 執行遷移就緒驗證</button>
+  </div>
+
+  <div style="margin-top: 15px; background-color: var(--background-color); padding: 15px; border-radius: 6px; display: none;" id="migrationExecuteBlock">
+    <div style="font-weight: bold; color: var(--danger-color);">⚠️ 警告：執行遷移將重寫 SubsidyRules 中的 subsidy_rate 儲存值！</div>
+    <p style="font-size: 0.9rem; margin-top: 5px;">請於下方輸入確認文字 <code>CONFIRM RATE MIGRATION</code> 以啟用正式遷移：</p>
+    
+    <div class="form-group" style="margin-top: 10px;">
+      <input type="text" id="confirmMigrationText" class="form-control" placeholder="CONFIRM RATE MIGRATION" style="width: 300px;"/>
+    </div>
+    
+    <button class="btn btn-danger" style="margin-top: 10px;" onclick="executeRateMigration()">⚡ 執行正式規格遷移</button>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">遷移回滾控制 (Rollback)</div>
+  <p style="font-size: 0.9rem; color: var(--text-muted); margin-top: 5px;">若遷移後發現資料有誤，可輸入遷移紀錄 ID 進行完整還原：</p>
+  
+  <div class="form-group" style="margin-top: 10px; display: flex; gap: 8px;">
+    <input type="text" id="rollbackMigrationId" class="form-control" placeholder="輸入例如：MIG_1710000000" style="width: 250px;"/>
+    <button class="btn btn-secondary" onclick="rollbackRateMigration()">↩️ 執行回滾還原</button>
+  </div>
+</div>
+
+<div class="card" style="margin-top: 15px;">
+  <div class="card-title">費率預覽清單</div>
+  <div class="table-responsive" style="margin-top: 15px;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>規則ID</th>
+          <th>原始值</th>
+          <th>設定格式</th>
+          <th>預估 Basis Points</th>
+          <th>預覽狀態</th>
+          <th>錯誤 / 警告</th>
+        </tr>
+      </thead>
+      <tbody id="migrationPreviewBody">
+        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">尚未產生預覽。點選「產生遷移預覽」按鈕載入。</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>

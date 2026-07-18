@@ -1,0 +1,4 @@
+**/*
+!appsscript.json
+!src/backend/**/*.gs
+!src/frontend/**/*.html

@@ -1,0 +1,134 @@
+<!-- 檢視歷程 Modal 對話框 -->
+<div class="modal" id="studentHistoryModal" style="display:none;">
+  <div class="modal-content" style="max-width: 600px; padding: 25px;">
+    <span class="modal-close" onclick="closeHistoryModal()">&times;</span>
+    <h3 style="margin-top: 0; margin-bottom: 20px; color: var(--primary-color);">學生異動歷史歷程紀錄</h3>
+
+    <div style="text-align: left; margin-bottom: 20px;">
+      <strong>學生姓名：</strong><span id="histStudentName" style="font-weight:bold; margin-right: 15px;">-</span>
+      <strong>學號：</strong><span id="histStudentNumber">-</span>
+    </div>
+
+    <!-- 班級異動歷史 -->
+    <div style="text-align: left; margin-bottom: 25px;">
+      <h4 style="border-left: 4px solid var(--primary-color); padding-left: 8px; margin-bottom: 10px;">📅 班級就讀異動歷程</h4>
+      <table class="table" style="width:100%; font-size: 0.85rem; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th>班級名稱</th>
+            <th>生效區間 (開始 ~ 結束)</th>
+            <th>異動原因</th>
+            <th>登錄者</th>
+          </tr>
+        </thead>
+        <tbody id="classHistoryTableBody">
+          <tr>
+            <td colspan="4" style="text-align: center; color: var(--text-muted);">正在載入班級歷程...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 補助身分異動歷史 -->
+    <div style="text-align: left;">
+      <h4 style="border-left: 4px solid var(--primary-color); padding-left: 8px; margin-bottom: 10px;">📅 補助身分變更歷程</h4>
+      <table class="table" style="width:100%; font-size: 0.85rem; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th>補助身分</th>
+            <th>生效區間 (開始 ~ 結束)</th>
+            <th>證明文號</th>
+            <th>異動原因</th>
+            <th>登錄者</th>
+          </tr>
+        </thead>
+        <tbody id="subsidyHistoryTableBody">
+          <tr>
+            <td colspan="5" style="text-align: center; color: var(--text-muted);">正在載入身分歷程...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; margin-top: 25px;">
+      <button class="btn btn-secondary" onclick="closeHistoryModal()">關閉</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openHistoryModal(studentId) {
+  // 顯示 Modal
+  document.getElementById('studentHistoryModal').style.display = 'flex';
+  
+  // 清空
+  document.getElementById('histStudentName').innerText = '載入中...';
+  document.getElementById('histStudentNumber').innerText = '載入中...';
+  document.getElementById('classHistoryTableBody').innerHTML = '<tr><td colspan="4" style="text-align: center;">載入中...</td></tr>';
+  document.getElementById('subsidyHistoryTableBody').innerHTML = '<tr><td colspan="5" style="text-align: center;">載入中...</td></tr>';
+
+  // 讀取學生基本資料
+  callServer('apiGetStudent', studentId).then(function(s) {
+    document.getElementById('histStudentName').innerText = s.student_name;
+    document.getElementById('histStudentNumber').innerText = s.student_number || '-';
+  });
+
+  // 讀取歷程資料
+  callServer('apiGetStudentHistory', studentId)
+    .then(function(res) {
+      // 1. 渲染班級歷程
+      var classBody = document.getElementById('classHistoryTableBody');
+      classBody.innerHTML = '';
+      
+      var classMap = {};
+      AppCache.classes.forEach(function(c) { classMap[c.class_id] = c.class_name; });
+
+      if (res.classHistory.length === 0) {
+        classBody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">無就讀歷程紀錄。</td></tr>';
+      } else {
+        res.classHistory.forEach(function(ch) {
+          var tr = document.createElement('tr');
+          var end = ch.effective_end_date || '持續有效';
+          tr.innerHTML = 
+            '<td>' + escapeHtml(classMap[ch.class_id] || '未知班級') + '</td>' +
+            '<td>' + ch.effective_start_date + ' 至 ' + end + '</td>' +
+            '<td>' + escapeHtml(ch.change_reason || '-') + '</td>' +
+            '<td>' + escapeHtml(ch.created_by) + '</td>';
+          classBody.appendChild(tr);
+        });
+      }
+
+      // 2. 渲染補助歷程
+      var subBody = document.getElementById('subsidyHistoryTableBody');
+      subBody.innerHTML = '';
+
+      if (res.subsidyHistory.length === 0) {
+        subBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">無身分歷程紀錄。</td></tr>';
+      } else {
+        res.subsidyHistory.forEach(function(sh) {
+          var tr = document.createElement('tr');
+          var end = sh.effective_end_date || '持續有效';
+          
+          var catName = sh.subsidy_category_id;
+          var matchedCat = AppCache.categories.filter(function(x) { return x.subsidy_category_id === sh.subsidy_category_id; })[0];
+          if (matchedCat) catName = matchedCat.category_name;
+
+          tr.innerHTML = 
+            '<td>' + escapeHtml(catName) + '</td>' +
+            '<td>' + sh.effective_start_date + ' 至 ' + end + '</td>' +
+            '<td>' + escapeHtml(sh.source_document_no || '-') + '</td>' +
+            '<td>' + escapeHtml(sh.change_reason || '-') + '</td>' +
+            '<td>' + escapeHtml(sh.created_by) + '</td>';
+          subBody.appendChild(tr);
+        });
+      }
+    })
+    .catch(function(err) {
+      showToast('載入歷程失敗: ' + err.message, 'error');
+    });
+}
+
+function closeHistoryModal() {
+  document.getElementById('studentHistoryModal').style.display = 'none';
+}
+</script>

@@ -1,0 +1,287 @@
+<div class="card" id="classManagementView">
+  <div class="card-title">班級與導師管理</div>
+  
+  <!-- 搜尋與過濾列 -->
+  <div class="filters-row" style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 200px;">
+      <input type="text" id="classSearchInput" placeholder="搜尋班級名稱、代碼或導師姓名..." style="width: 100%;" oninput="loadClassesList()">
+    </div>
+    <div style="width: 120px;">
+      <select id="classYearFilter" onchange="loadClassesList()">
+        <option value="115">115 學年度</option>
+        <option value="116">116 學年度</option>
+      </select>
+    </div>
+    <div style="width: 120px;">
+      <select id="classGradeFilter" onchange="loadClassesList()">
+        <option value="">全部年級</option>
+        <option value="1">一年級</option>
+        <option value="2">二年級</option>
+        <option value="3">三年級</option>
+        <option value="4">四年級</option>
+        <option value="5">五年級</option>
+        <option value="6">六年級</option>
+        <option value="7">幼兒園</option>
+      </select>
+    </div>
+    <div style="width: 120px;">
+      <select id="classStatusFilter" onchange="loadClassesList()">
+        <option value="true">僅啟用班級</option>
+        <option value="false">僅停用班級</option>
+        <option value="">全部狀態</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" onclick="openClassModal()" id="btnCreateClass">➕ 新增班級</button>
+  </div>
+
+  <!-- 班級列表表格 -->
+  <div style="overflow-x: auto;">
+    <table class="table" style="width:100%; border-collapse: collapse;">
+      <thead>
+        <tr>
+          <th>學年度</th>
+          <th>年級</th>
+          <th>班級代碼</th>
+          <th>班級名稱</th>
+          <th>類型</th>
+          <th>導師姓名</th>
+          <th>導師 Email</th>
+          <th>排序值</th>
+          <th>狀態</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="classTableBody">
+        <tr>
+          <td colspan="10" style="text-align: center; color: var(--text-muted);">正在載入班級資料...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 新增/修改班級 Modal 對話框 -->
+<div class="modal" id="classModal" style="display:none;">
+  <div class="modal-content" style="max-width: 500px;">
+    <span class="modal-close" onclick="closeClassModal()">&times;</span>
+    <h3 id="classModalTitle" style="margin-top: 0; margin-bottom: 20px; color: var(--primary-color);">新增班級</h3>
+    
+    <input type="hidden" id="editClassId">
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">學年度 *</label>
+      <input type="number" id="classFormSchoolYear" value="115" style="width: 100%;" required>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">年級 *</label>
+      <select id="classFormGrade" style="width: 100%;">
+        <option value="1">一年級 (Grade 1)</option>
+        <option value="2">二年級 (Grade 2)</option>
+        <option value="3">三年級 (Grade 3)</option>
+        <option value="4">四年級 (Grade 4)</option>
+        <option value="5">五年級 (Grade 5)</option>
+        <option value="6">六年級 (Grade 6)</option>
+        <option value="7">幼兒園 (Kindergarten)</option>
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">班級代碼 * (如 G1C1)</label>
+      <input type="text" id="classFormCode" placeholder="請輸入英文數字代碼" style="width: 100%;" required>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">班級名稱 * (如 一年一班)</label>
+      <input type="text" id="classFormName" placeholder="請輸入中文班級名稱" style="width: 100%;" required>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">班級類型 *</label>
+      <select id="classFormType" style="width: 100%;">
+        <option value="regular">普通班 (regular)</option>
+        <option value="kindergarten">幼兒園 (kindergarten)</option>
+        <option value="staff">教職員 (staff)</option>
+        <option value="affiliated">附設班 (affiliated)</option>
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">導師姓名</label>
+      <input type="text" id="classFormTeacherName" placeholder="填寫導師名稱" style="width: 100%;">
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">導師 Google 帳號 Email</label>
+      <input type="email" id="classFormTeacherEmail" placeholder="請填入已啟用之使用者 Email" style="width: 100%;">
+    </div>
+
+    <div class="form-group" style="margin-bottom: 15px; text-align: left;">
+      <label class="form-label" style="font-weight: bold; display: block; margin-bottom: 5px;">顯示順序</label>
+      <input type="number" id="classFormDisplayOrder" value="10" style="width: 100%;">
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+      <button class="btn btn-secondary" onclick="closeClassModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitClassForm()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/**
+ * 載入班級列表
+ */
+function loadClassesList() {
+  var filters = {
+    school_year: document.getElementById('classYearFilter').value,
+    grade: document.getElementById('classGradeFilter').value,
+    enabled: document.getElementById('classStatusFilter').value,
+    search: document.getElementById('classSearchInput').value
+  };
+
+  callServer('apiListClasses', filters)
+    .then(function(classes) {
+      var tbody = document.getElementById('classTableBody');
+      tbody.innerHTML = '';
+
+      // 檢查是否具有管理員編輯權限
+      var canEdit = (App.user.role === 'system_admin' || App.user.role === 'lunch_admin');
+      
+      if (!canEdit) {
+        document.getElementById('btnCreateClass').style.display = 'none';
+      }
+
+      if (classes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">符合過濾條件的班級不存在。</td></tr>';
+        return;
+      }
+
+      classes.forEach(function(c) {
+        var tr = document.createElement('tr');
+        
+        var statusBadge = (c.enabled === true || c.enabled === 'TRUE')
+          ? '<span class="badge badge-healthy">啟用</span>'
+          : '<span class="badge badge-blocking">停用</span>';
+
+        var actionsHtml = '';
+        if (canEdit) {
+          actionsHtml = '<button class="btn btn-secondary" style="font-size:0.8rem; padding: 4px 8px; margin-right: 5px;" onclick=\'editClass(' + JSON.stringify(c) + ')\'>編輯</button>';
+          if (c.enabled === true || c.enabled === 'TRUE') {
+            actionsHtml += '<button class="btn btn-danger" style="font-size:0.8rem; padding: 4px 8px;" onclick="disableClass(\'' + c.class_id + '\')">停用</button>';
+          }
+        } else {
+          actionsHtml = '<span style="color:var(--text-muted); font-size:0.85rem;">唯讀</span>';
+        }
+
+        tr.innerHTML = 
+          '<td>' + c.school_year + '</td>' +
+          '<td>' + c.grade + '</td>' +
+          '<td>' + escapeHtml(c.class_code) + '</td>' +
+          '<td>' + escapeHtml(c.class_name) + '</td>' +
+          '<td>' + escapeHtml(c.class_type) + '</td>' +
+          '<td>' + escapeHtml(c.teacher_name || '-') + '</td>' +
+          '<td>' + escapeHtml(c.teacher_email || '-') + '</td>' +
+          '<td>' + c.display_order + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>' + actionsHtml + '</td>';
+        
+        tbody.appendChild(tr);
+      });
+    })
+    .catch(function(err) {
+      showToast('載入班級列表失敗: ' + err.message, 'error');
+    });
+}
+
+/**
+ * 開啟 Modal
+ */
+function openClassModal() {
+  document.getElementById('editClassId').value = '';
+  document.getElementById('classModalTitle').innerText = '新增班級';
+  document.getElementById('classFormCode').disabled = false;
+  
+  // 清空表單
+  document.getElementById('classFormCode').value = '';
+  document.getElementById('classFormName').value = '';
+  document.getElementById('classFormTeacherName').value = '';
+  document.getElementById('classFormTeacherEmail').value = '';
+  document.getElementById('classFormDisplayOrder').value = '10';
+  
+  document.getElementById('classModal').style.display = 'flex';
+}
+
+function closeClassModal() {
+  document.getElementById('classModal').style.display = 'none';
+}
+
+/**
+ * 進入編輯狀態
+ */
+function editClass(c) {
+  document.getElementById('editClassId').value = c.class_id;
+  document.getElementById('classModalTitle').innerText = '編輯班級 - ' + c.class_name;
+  
+  document.getElementById('classFormSchoolYear').value = c.school_year;
+  document.getElementById('classFormGrade').value = c.grade;
+  
+  // 班級代碼為唯一鍵，防呆不讓修改
+  document.getElementById('classFormCode').value = c.class_code;
+  document.getElementById('classFormCode').disabled = true;
+  
+  document.getElementById('classFormName').value = c.class_name;
+  document.getElementById('classFormType').value = c.class_type;
+  document.getElementById('classFormTeacherName').value = c.teacher_name || '';
+  document.getElementById('classFormTeacherEmail').value = c.teacher_email || '';
+  document.getElementById('classFormDisplayOrder').value = c.display_order || '10';
+
+  document.getElementById('classModal').style.display = 'flex';
+}
+
+/**
+ * 提交表單
+ */
+function submitClassForm() {
+  var classId = document.getElementById('editClassId').value;
+  var payload = {
+    school_year: document.getElementById('classFormSchoolYear').value,
+    grade: document.getElementById('classFormGrade').value,
+    class_code: document.getElementById('classFormCode').value,
+    class_name: document.getElementById('classFormName').value,
+    class_type: document.getElementById('classFormType').value,
+    teacher_name: document.getElementById('classFormTeacherName').value,
+    teacher_email: document.getElementById('classFormTeacherEmail').value,
+    display_order: document.getElementById('classFormDisplayOrder').value
+  };
+
+  var apiKey = classId ? 'apiUpdateClass' : 'apiCreateClass';
+  var args = classId ? [classId, payload] : [payload];
+
+  callServer(apiKey, args)
+    .then(function(res) {
+      showToast('儲存班級成功', 'success');
+      closeClassModal();
+      loadClassesList();
+    })
+    .catch(function(err) {
+      showToast(err.message, 'error');
+    });
+}
+
+/**
+ * 停用班級
+ */
+function disableClass(classId) {
+  if (!confirm('您確定要停用該班級嗎？如果班級內含有學生將無法停用。')) return;
+
+  callServer('apiDisableClass', classId)
+    .then(function(res) {
+      showToast('已成功停用班級', 'success');
+      loadClassesList();
+    })
+    .catch(function(err) {
+      showToast(err.message, 'error');
+    });
+}
+</script>

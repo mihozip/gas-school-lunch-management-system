@@ -1,0 +1,183 @@
+<div class="card" id="monthlyReconView">
+  <div class="card-title">月度餐數對帳預覽 (Monthly Reconciliation Preview)</div>
+
+  <!-- 過濾控制 -->
+  <div style="display: flex; gap: 15px; margin-bottom: 20px; text-align: left; align-items: flex-end;">
+    <div>
+      <label style="font-weight: bold; display: block; margin-bottom: 5px;">對帳月份</label>
+      <input type="month" id="reconMonth" onchange="previewMonthlyReconciliation()" style="padding: 6px 12px;">
+    </div>
+    <button class="btn btn-primary" onclick="previewMonthlyReconciliation()">⚡ 重新整理對帳預覽</button>
+    <div style="background: var(--primary-bg); border: 1px solid rgba(16,185,129,0.2); padding: 8px 15px; border-radius: 6px; font-size: 0.85rem; flex: 1;">
+      📌 此頁面僅提供 <b>餐數與帳冊對帳預覽</b>，本階段暫不執行補助金額分攤或正式鎖定歸檔。
+    </div>
+  </div>
+
+  <!-- 對帳狀態與檢驗看板 -->
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; text-align: center;">
+    <div class="card" style="padding: 15px; margin-bottom: 0; border-top: 4px solid var(--primary-color);">
+      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom: 5px;">點名登記完整度</div>
+      <div style="font-size:1.1rem; font-weight:bold;" id="reconCompletenessText">未檢測</div>
+    </div>
+    <div class="card" style="padding: 15px; margin-bottom: 0; border-top: 4px solid var(--status-warning);">
+      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom: 5px;">Ledger 與 Summary 核照</div>
+      <div style="font-size:1.1rem; font-weight:bold;" id="reconLedgerSummaryText">未檢測</div>
+    </div>
+    <div class="card" style="padding: 15px; margin-bottom: 0; border-top: 4px solid var(--status-healthy);" id="reconStatusCard">
+      <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom: 5px;">對帳狀態 (Reconciliation Status)</div>
+      <div style="font-size:1.3rem; font-weight:bold; color:var(--status-healthy);" id="reconStatusText">-</div>
+    </div>
+  </div>
+
+  <!-- 未確認班級警示區 -->
+  <div class="card" id="reconAlertBox" style="display:none; background: #fffbeb; border: 1px solid #fde68a; text-align: left; padding: 15px; margin-bottom: 20px;">
+    <h4 style="color:#b45309; margin-top:0; margin-bottom: 10px; font-size:0.95rem;">⚠️ 點名確認未完成警告 (將導致對帳狀態為 incomplete)</h4>
+    <ul id="reconAlertList" style="margin:0; padding-left:20px; font-size:0.85rem; line-height: 1.6;">
+      <!-- JS 動態插入 -->
+    </ul>
+  </div>
+
+  <!-- 彙總檢視分頁與 Tab -->
+  <div style="text-align: left;">
+    <h3 style="color: var(--primary-color); font-size:1.05rem; margin-bottom: 12px;">📊 月度餐數彙總明細 (Monthly Summaries)</h3>
+    <div style="overflow-x: auto;">
+      <table class="table" style="width: 100%; font-size: 0.88rem;">
+        <thead>
+          <tr>
+            <th>班級名稱</th>
+            <th>補助身分類別</th>
+            <th>膳食類別</th>
+            <th>當月供餐日數</th>
+            <th>在籍用餐人次數</th>
+            <th>長期停餐扣除</th>
+            <th>請假登記扣除</th>
+            <th>預估實到餐數</th>
+            <th>預估總金額 (gross)</th>
+            <th>對帳狀態</th>
+            <th>補助分攤</th>
+          </tr>
+        </thead>
+        <tbody id="reconSummariesTableBody">
+          <tr>
+            <td colspan="11" style="text-align: center; color: var(--text-muted);">請先選擇對帳月份。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/**
+ * 初始化
+ */
+function initMonthlyReconView() {
+  var now = new Date();
+  document.getElementById('reconMonth').value = now.getFullYear() + '-' + Utils.padZero(now.getMonth() + 1);
+  previewMonthlyReconciliation();
+}
+
+/**
+ * 預覽月份對帳
+ */
+function previewMonthlyReconciliation() {
+  var yearMonth = document.getElementById('reconMonth').value;
+  if (!yearMonth) return;
+
+  showLoading('計算月度對帳預覽中...');
+
+  callServer('apiPreviewMonthlyReconciliation', yearMonth)
+    .then(function(res) {
+      hideLoading();
+
+      // 1. 填入完整度與核照
+      var comp = res.completeness;
+      document.getElementById('reconCompletenessText').innerText = 
+        comp.actualCount + ' / ' + comp.expectedCount + ' 班日已確認 (' + 
+        (comp.isComplete ? '🟢 100%' : '🔴 尚有缺漏') + ')';
+      
+      var match = res.comparison;
+      document.getElementById('reconLedgerSummaryText').innerText = 
+        'Ledger: ' + match.ledgerTotal + ' 餐\nSummary: ' + match.summaryTotal + ' 餐\n' + 
+        (match.isMatch ? '🟢 對照吻合' : '🔴 不一致！');
+
+      // 2. 顯示對帳狀態 Badge
+      var statusText = document.getElementById('reconStatusText');
+      var statusCard = document.getElementById('reconStatusCard');
+      
+      statusText.innerText = res.reconciliationStatus;
+      if (res.reconciliationStatus === 'reconciled') {
+        statusText.style.color = 'var(--status-healthy)';
+        statusCard.style.borderTop = '4px solid var(--status-healthy)';
+      } else if (res.reconciliationStatus === 'warning') {
+        statusText.style.color = 'var(--status-warning)';
+        statusCard.style.borderTop = '4px solid var(--status-warning)';
+      } else {
+        statusText.style.color = 'var(--status-blocking)';
+        statusCard.style.borderTop = '4px solid var(--status-blocking)';
+      }
+
+      // 3. 顯示未確認警示
+      var alertBox = document.getElementById('reconAlertBox');
+      var alertList = document.getElementById('reconAlertList');
+      alertList.innerHTML = '';
+      
+      if (comp.missingConfirmations.length > 0) {
+        alertBox.style.display = 'block';
+        comp.missingConfirmations.forEach(function(m) {
+          var li = document.createElement('li');
+          li.innerText = '日期：' + m.date + ' | 班級：' + m.class_name + ' | 導師：' + (m.teacher_name || '無') + ' | 當前狀態：' + m.status;
+          alertList.appendChild(li);
+        });
+      } else {
+        alertBox.style.display = 'none';
+      }
+
+      // 4. 渲染 Summaries 表格
+      var tbody = document.getElementById('reconSummariesTableBody');
+      tbody.innerHTML = '';
+
+      if (res.summaries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-muted);">本月份尚無任何日餐數統計資料，請先前往「每日計算」執行計算。</td></tr>';
+        return;
+      }
+
+      // 載入班級與身分以取得名稱
+      Promise.all([
+        callServer('apiListClasses', { school_year: 115 }),
+        callServer('apiListStudents', {}) // 示意載入身分
+      ]).then(function(datas) {
+        var classes = datas[0];
+        
+        res.summaries.forEach(function(s) {
+          var tr = document.createElement('tr');
+          
+          var cls = classes.filter(function(c) { return c.class_id === s.class_id; })[0];
+          var className = cls ? cls.class_name : '未知班級';
+          var subName = s.subsidy_category_id; // 簡化
+
+          tr.innerHTML = 
+            '<td>' + escapeHtml(className) + '</td>' +
+            '<td>' + escapeHtml(subName) + '</td>' +
+            '<td>' + escapeHtml(s.dietary_type || '葷食') + '</td>' +
+            '<td>' + s.meal_day_count + ' 天</td>' +
+            '<td>' + s.roster_meal_count + ' 人次</td>' +
+            '<td>' + s.suspension_count + ' 餐</td>' +
+            '<td>' + s.exception_count + ' 餐</td>' +
+            '<td style="font-weight:bold; color:var(--primary-color);">' + s.actual_meal_count + ' 餐</td>' +
+            '<td>$' + s.total_amount + '</td>' +
+            '<td><span class="badge">' + s.reconciliation_status + '</span></td>' +
+            '<td><span style="color:var(--text-muted); font-size:0.8rem;">' + s.funding_calculation_status + '</span></td>';
+          
+          tbody.appendChild(tr);
+        });
+      });
+
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast(err.message, 'error');
+    });
+}
+</script>

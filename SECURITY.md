@@ -17,9 +17,14 @@
 
 若您發現系統存在漏洞（如權限繞過、資料注入、加密演算法弱點等），請**不要建立公開的 GitHub Issue**。
 
-請將詳細漏洞說明、重現步驟以及 CVSS 影響評估，寄送至以下安全團隊聯絡通道：
+請使用 GitHub 官方提供的 **Private Vulnerability Reporting** 功能進行安全漏洞回報。
 
-* **安全聯絡信箱**：`SECURITY_CONTACT_PLACEHOLDER`
-*(請部署者自行於本機替換為學校總務/資訊小組的正式聯絡信箱)*
+**通報操作方式**：
+1. 開啟本 Repository 的 GitHub 主頁。
+2. 點選上方導覽列的 **Security** 頁籤。
+3. 點選左側選單中的 **Vulnerabilities**，並點擊 **Report a vulnerability** 按鈕。
+4. 填寫詳細漏洞說明、重現步驟以及影響評估，然後提交。
 
-我們將會在收到信件後 72 小時內進行初步確認，並在確認修復後將其發布於最新的開源版本中。
+我們在收到您的通報後，將儘速安排安全人員進行評估與修復，並在確認修復後將其發布於最新的開源版本中。
+
+*(註：若本專案的 Private Vulnerability Reporting 功能尚未啟用，請先向專案管理員回報 `MANUAL_ACTION_REQUIRED` 以啟用此功能，切勿直接公開發布漏洞。)*

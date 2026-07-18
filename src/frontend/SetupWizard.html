@@ -484,7 +484,8 @@
               executeNext(stepIndex + 1);
             })
             .catch(function(err) {
-              consoleEl.innerHTML += '<p style="color:#ef4444">> ❌ 步驟 ' + stepName + ' 失敗：' + escapeHtml(err.message) + '</p>';
+              var msg = err.message || '未知錯誤';
+              consoleEl.innerHTML += '<p style="color:#ef4444">> ❌ 步驟 ' + stepName + ' 失敗：' + escapeHtml(msg) + '</p>';
               consoleEl.scrollTop = consoleEl.scrollHeight;
               showToast('初始化於 ' + stepName + ' 中斷。請修復錯誤後點選繼續。', 'error');
               

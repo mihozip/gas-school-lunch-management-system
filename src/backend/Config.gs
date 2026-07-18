@@ -94,6 +94,15 @@ var Config = (function() {
    * @return {string} Drive Folder ID
    */
   function getReportRootFolderId() {
+    if (isTestMode) {
+      var testFolderId = getProperty('TEST_REPORT_FOLDER_ID');
+      if (!testFolderId) {
+        var err = new Error('自動測試模式已啟動，但 Script Properties 中未設定 TEST_REPORT_FOLDER_ID');
+        err.code = 'TEST_REPORT_FOLDER_NOT_CONFIGURED';
+        throw err;
+      }
+      return testFolderId;
+    }
     return getProperty('REPORT_ROOT_FOLDER_ID');
   }
 

@@ -155,6 +155,102 @@ var ReportService = (function() {
     var allocs = loadCsvFromDrive(allocArt.file_id, { isReport: true });
     var fSums = loadCsvFromDrive(fSumArt.file_id, { isReport: true });
 
+    // 1. Calculate ledgerGrossMinor from dailyMealLedger_export with strict checks
+    var ledgerGrossMinor = 0;
+    ledgers.forEach(function(l) {
+      var mealCountVal = l.eligible_meal_count;
+      if (mealCountVal === undefined || mealCountVal === null || mealCountVal === '') {
+        var err = new Error('🛑 報表欄位錯誤：缺少用餐餐數欄位。');
+        err.code = 'REPORT_LEDGER_ROW_INVALID';
+        throw err;
+      }
+      var mealCount = Number(mealCountVal);
+      if (!Number.isFinite(mealCount) || !Number.isInteger(mealCount) || mealCount < 0) {
+        var err = new Error('🛑 報表欄位錯誤：用餐餐數必須為非負整數：' + mealCountVal);
+        err.code = 'REPORT_LEDGER_ROW_INVALID';
+        throw err;
+      }
+
+      var hasMinor = (l.meal_price_minor_snapshot !== undefined && l.meal_price_minor_snapshot !== null && l.meal_price_minor_snapshot !== '');
+      var hasYuan = (l.meal_price_snapshot !== undefined && l.meal_price_snapshot !== null && l.meal_price_snapshot !== '');
+
+      if (!hasMinor && !hasYuan) {
+        var err = new Error('🛑 報表欄位錯誤：缺少餐價快照欄位。');
+        err.code = 'REPORT_LEDGER_PRICE_MISSING';
+        throw err;
+      }
+
+      var priceMinor = 0;
+
+      if (hasMinor) {
+        var minorVal = l.meal_price_minor_snapshot;
+        var numMinor = Number(minorVal);
+        if (!Number.isFinite(numMinor) || !Number.isInteger(numMinor) || numMinor < 0) {
+          var err = new Error('🛑 報表欄位錯誤：餐價 minor 單位快照必須為非負整數：' + minorVal);
+          err.code = 'REPORT_LEDGER_ROW_INVALID';
+          throw err;
+        }
+        priceMinor = numMinor;
+      }
+
+      var yuanConvertedMinor = 0;
+      if (hasYuan) {
+        var rawYuan = l.meal_price_snapshot;
+        yuanConvertedMinor = MoneyService.yuanToMinor(rawYuan);
+        if (yuanConvertedMinor < 0) {
+          var err = new Error('🛑 報表欄位錯誤：餐價快照不得為負數。');
+          err.code = 'REPORT_LEDGER_ROW_INVALID';
+          throw err;
+        }
+        if (!hasMinor) {
+          priceMinor = yuanConvertedMinor;
+        }
+      }
+
+      if (hasMinor && hasYuan) {
+        if (priceMinor !== yuanConvertedMinor) {
+          var err = new Error('🛑 報表欄位錯誤：餐價的元快照轉換值 (' + yuanConvertedMinor + ') 與 minor 快照值 (' + priceMinor + ') 不一致！');
+          err.code = 'REPORT_LEDGER_GROSS_MISMATCH';
+          throw err;
+        }
+      }
+
+      if (mealCount > 0) {
+        ledgerGrossMinor += mealCount * priceMinor;
+      }
+    });
+
+    // 2. Sum allocationLedgerTotalMinor
+    var allocationLedgerTotalMinor = 0;
+    allocs.forEach(function(al) {
+      var amt = parseInt(al.settlement_amount_minor || al.final_amount_minor || 0, 10);
+      allocationLedgerTotalMinor += amt;
+    });
+
+    // 3. Sum monthlyFundingSummaryTotalMinor
+    var monthlyFundingSummaryTotalMinor = 0;
+    fSums.forEach(function(fs) {
+      var amt = parseInt(fs.settlement_total_minor || fs.final_amount_minor || 0, 10);
+      monthlyFundingSummaryTotalMinor += amt;
+    });
+
+    // 4. Perform the required 4-way checks in order
+    if (ledgerGrossMinor !== allocationLedgerTotalMinor) {
+      var errAlloc = new Error('🛑 報表金額不一致：封存明細加總 (' + ledgerGrossMinor + ' minor) 與補助款分配額 (' + allocationLedgerTotalMinor + ' minor) 不符合！');
+      errAlloc.code = 'REPORT_ALLOCATION_TOTAL_MISMATCH';
+      throw errAlloc;
+    }
+    if (ledgerGrossMinor !== monthlyFundingSummaryTotalMinor) {
+      var errSum = new Error('🛑 報表金額不一致：封存明細加總 (' + ledgerGrossMinor + ' minor) 與月彙總額 (' + monthlyFundingSummaryTotalMinor + ' minor) 不符合！');
+      errSum.code = 'REPORT_SUMMARY_TOTAL_MISMATCH';
+      throw errSum;
+    }
+    if (ledgerGrossMinor !== parseInt(closing.gross_amount_minor || 0, 10)) {
+      var errClose = new Error('🛑 報表金額不一致：封存明細加總 (' + ledgerGrossMinor + ' minor) 與月結單總餐費 (' + closing.gross_amount_minor + ' minor) 不符合！');
+      errClose.code = 'CLOSING_GROSS_MISMATCH';
+      throw errClose;
+    }
+
     // 依據 fSums 進行實際彙總
     var townshipMinor = 0;
     var countyMinor = 0;
@@ -177,9 +273,7 @@ var ReportService = (function() {
       else if (source === 'other') otherMinor += amt;
     });
 
-    var grossMinor = parseInt(closing.gross_amount_minor || 0, 10);
-    
-    // 交叉驗證：allocations 總和應等於 fSums 總和
+    // 交叉驗證：allocations 總和應等於 fSums 總和 (by funding_source)
     var allocSums = {};
     allocs.forEach(function(al) {
       var src = al.funding_source;
@@ -204,15 +298,6 @@ var ReportService = (function() {
       }
     }
 
-    var sumOfSources = townshipMinor + countyMinor + schoolMinor + selfPayMinor + otherMinor;
-    
-    // 驗證是否相等
-    if (sumOfSources !== grossMinor) {
-      var err = new Error('🛑 報表錯誤：補助來源金額累加 (' + sumOfSources + ' minor units) 與總餐費金額 (' + grossMinor + ' minor units) 不平衡！');
-      err.code = 'REPORT_FUNDING_TOTAL_NOT_BALANCED';
-      throw err;
-    }
-
     // 套用個資隱私權限等級遮罩
     var dailyRows = [];
     ledgers.forEach(function(l) {
@@ -224,12 +309,19 @@ var ReportService = (function() {
           name = l.student_name_masked || '';
         }
         
+        var priceMinor = 0;
+        if (l.meal_price_minor_snapshot !== undefined && l.meal_price_minor_snapshot !== null && l.meal_price_minor_snapshot !== '') {
+          priceMinor = parseInt(l.meal_price_minor_snapshot, 10);
+        } else if (l.meal_price_snapshot !== undefined && l.meal_price_snapshot !== null && l.meal_price_snapshot !== '') {
+          priceMinor = MoneyService.yuanToMinor(l.meal_price_snapshot);
+        }
+
         dailyRows.push({
           date: l.date,
-          class_code: l.class_code_snapshot,
+          class_code: l.class_code_snapshot || '',
           student_name: name,
           meal_count: 1,
-          meal_price: parseFloat(l.meal_price_snapshot) || 0
+          meal_price: MoneyService.minorToYuan(priceMinor)
         });
       }
     });
@@ -259,7 +351,7 @@ var ReportService = (function() {
       VALIDATED_BY: closing.validated_by || '',
       CLOSED_BY: closing.closed_by || '',
       TOTAL_MEAL_COUNT: closing.meal_count_total || 0,
-      GROSS_AMOUNT: MoneyService.minorToYuan(grossMinor),
+      GROSS_AMOUNT: MoneyService.minorToYuan(ledgerGrossMinor),
       TOWNSHIP_AMOUNT: MoneyService.minorToYuan(townshipMinor),
       COUNTY_AMOUNT: MoneyService.minorToYuan(countyMinor),
       SCHOOL_AMOUNT: MoneyService.minorToYuan(schoolMinor),
@@ -290,36 +382,6 @@ var ReportService = (function() {
   }
 
   function loadCsvFromDrive(fileId, options) {
-    // 支援測試模擬數據，以避免測試時依賴實際的 Drive 檔案
-    if (fileId && String(fileId).indexOf('MOCK_FILE_') === 0) {
-      if (fileId === 'MOCK_FILE_LEDGER') {
-        return [{
-          eligible_meal_count: '1',
-          student_name: '陳小明',
-          student_name_masked: '陳○明',
-          date: '2026-09-01',
-          class_code_snapshot: 'G1C1',
-          meal_price_snapshot: '60.00'
-        }];
-      }
-      if (fileId === 'MOCK_FILE_ALLOC') {
-        return [{
-          funding_source: 'township',
-          settlement_amount_minor: '600',
-          final_amount_minor: '600'
-        }];
-      }
-      if (fileId === 'MOCK_FILE_SUMMARY') {
-        return [{
-          funding_source: 'township',
-          settlement_total_minor: '600',
-          final_amount_minor: '600',
-          gross_amount_minor: '600',
-          meal_count: '10'
-        }];
-      }
-    }
-
     var isReport = options && options.isReport;
     if (!fileId) {
       if (isReport) {
@@ -438,59 +500,62 @@ var ReportService = (function() {
       throw err2;
     }
 
-    var copyFile = templateFile.makeCopy('temp_render_doc_' + new Date().getTime(), outputFolder);
-    
-    var doc;
+    var copyFile;
     try {
-      doc = DocumentApp.openById(copyFile.getId());
-    } catch (e) {
-      copyFile.setTrashed(true);
-      var err3 = new Error('無法開啟 Docs 範本副本：' + e.message);
-      err3.code = 'TEMPLATE_FILE_NOT_FOUND';
-      throw err3;
+      copyFile = templateFile.makeCopy('temp_render_doc_' + new Date().getTime(), outputFolder);
+      
+      var doc;
+      try {
+        doc = DocumentApp.openById(copyFile.getId());
+      } catch (e) {
+        var err3 = new Error('無法開啟 Docs 範本副本：' + e.message);
+        err3.code = 'TEMPLATE_FILE_NOT_FOUND';
+        throw err3;
+      }
+      var body = doc.getBody();
+      
+      body.replaceText('\\{\\{SCHOOL_NAME\\}\\}', String(dataModel.SCHOOL_NAME));
+      body.replaceText('\\{\\{YEAR_MONTH\\}\\}', String(dataModel.YEAR_MONTH));
+      body.replaceText('\\{\\{TOTAL_MEAL_COUNT\\}\\}', String(dataModel.TOTAL_MEAL_COUNT));
+      body.replaceText('\\{\\{GROSS_AMOUNT\\}\\}', String(dataModel.GROSS_AMOUNT));
+      body.replaceText('\\{\\{TOWNSHIP_AMOUNT\\}\\}', String(dataModel.TOWNSHIP_AMOUNT));
+      body.replaceText('\\{\\{COUNTY_AMOUNT\\}\\}', String(dataModel.COUNTY_AMOUNT));
+      body.replaceText('\\{\\{SCHOOL_AMOUNT\\}\\}', String(dataModel.SCHOOL_AMOUNT));
+      body.replaceText('\\{\\{SELF_PAY_AMOUNT\\}\\}', String(dataModel.SELF_PAY_AMOUNT));
+
+      var tableData = [['日期', '班級', '學生姓名', '餐數', '單價']];
+      dataModel.DAILY_ROWS.forEach(function(r) {
+        tableData.push([
+          String(r.date),
+          String(r.class_code),
+          String(r.student_name),
+          String(r.meal_count),
+          '$' + r.meal_price.toFixed(2)
+        ]);
+      });
+      body.appendTable(tableData);
+
+      doc.saveAndClose();
+
+      var blob = copyFile.getAs('application/pdf');
+      var fileName = Config.getSystemConfig('SCHOOL_CODE', 'SCH001') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
+                     template.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
+                     '_TemplateV' + template.template_version;
+      if (isPreview) {
+        fileName += '_PREVIEW';
+      }
+      fileName += '.pdf';
+      blob.setName(fileName);
+
+      var pdfFile = outputFolder.createFile(blob);
+      return pdfFile;
+    } finally {
+      if (copyFile) {
+        try {
+          copyFile.setTrashed(true);
+        } catch (e) {}
+      }
     }
-    var body = doc.getBody();
-    
-    // Docs body.replaceText 第一參數是 regex，故 placeholder 必須進行 regex escape
-    // Docs 是純文字，不做 escapeHtml
-    body.replaceText('\\{\\{SCHOOL_NAME\\}\\}', String(dataModel.SCHOOL_NAME));
-    body.replaceText('\\{\\{YEAR_MONTH\\}\\}', String(dataModel.YEAR_MONTH));
-    body.replaceText('\\{\\{TOTAL_MEAL_COUNT\\}\\}', String(dataModel.TOTAL_MEAL_COUNT));
-    body.replaceText('\\{\\{GROSS_AMOUNT\\}\\}', String(dataModel.GROSS_AMOUNT));
-    body.replaceText('\\{\\{TOWNSHIP_AMOUNT\\}\\}', String(dataModel.TOWNSHIP_AMOUNT));
-    body.replaceText('\\{\\{COUNTY_AMOUNT\\}\\}', String(dataModel.COUNTY_AMOUNT));
-    body.replaceText('\\{\\{SCHOOL_AMOUNT\\}\\}', String(dataModel.SCHOOL_AMOUNT));
-    body.replaceText('\\{\\{SELF_PAY_AMOUNT\\}\\}', String(dataModel.SELF_PAY_AMOUNT));
-
-    // 插入明細表格（純文字，不用 escapeHtml）
-    var tableData = [['日期', '班級', '學生姓名', '餐數', '單價']];
-    dataModel.DAILY_ROWS.forEach(function(r) {
-      tableData.push([
-        String(r.date),
-        String(r.class_code),
-        String(r.student_name),
-        String(r.meal_count),
-        '$' + r.meal_price.toFixed(2)
-      ]);
-    });
-    body.appendTable(tableData);
-
-    doc.saveAndClose();
-
-    var blob = copyFile.getAs('application/pdf');
-    var fileName = Config.getSystemConfig('SCHOOL_CODE', 'SCH001') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
-                   template.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
-                   '_TemplateV' + template.template_version;
-    if (isPreview) {
-      fileName += '_PREVIEW';
-    }
-    fileName += '.pdf';
-    blob.setName(fileName);
-
-    var pdfFile = outputFolder.createFile(blob);
-    copyFile.setTrashed(true);
-
-    return pdfFile;
   }
 
   /**
@@ -513,48 +578,53 @@ var ReportService = (function() {
       throw err2;
     }
 
-    var copyFile = templateFile.makeCopy('temp_render_sheet_' + new Date().getTime(), outputFolder);
-    
-    var ss;
+    var copyFile;
     try {
-      ss = SpreadsheetApp.openById(copyFile.getId());
-    } catch (e) {
-      copyFile.setTrashed(true);
-      var err3 = new Error('無法開啟 Sheets 範本副本：' + e.message);
-      err3.code = 'TEMPLATE_FILE_NOT_FOUND';
-      throw err3;
+      copyFile = templateFile.makeCopy('temp_render_sheet_' + new Date().getTime(), outputFolder);
+      
+      var ss;
+      try {
+        ss = SpreadsheetApp.openById(copyFile.getId());
+      } catch (e) {
+        var err3 = new Error('無法開啟 Sheets 範本副本：' + e.message);
+        err3.code = 'TEMPLATE_FILE_NOT_FOUND';
+        throw err3;
+      }
+      var sh = ss.getSheets()[0];
+      if (!sh) {
+        throw new Error('Sheets 範本中找不到任何工作表');
+      }
+      
+      sh.getRange('A1').setValue(dataModel.SCHOOL_NAME);
+      sh.getRange('B2').setValue(dataModel.YEAR_MONTH);
+      sh.getRange('B3').setValue(dataModel.TOTAL_MEAL_COUNT);
+      sh.getRange('B4').setValue(dataModel.GROSS_AMOUNT);
+
+      if (isPreview) {
+        sh.getRange('A6').setValue('⚠️ 預覽文件 — 非正式申請資料');
+      }
+
+      SpreadsheetApp.flush();
+
+      var blob = copyFile.getAs('application/pdf');
+      var fileName = Config.getSystemConfig('SCHOOL_CODE', 'SCH001') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
+                     template.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
+                     '_TemplateV' + template.template_version;
+      if (isPreview) {
+        fileName += '_PREVIEW';
+      }
+      fileName += '.pdf';
+      blob.setName(fileName);
+
+      var pdfFile = outputFolder.createFile(blob);
+      return pdfFile;
+    } finally {
+      if (copyFile) {
+        try {
+          copyFile.setTrashed(true);
+        } catch (e) {}
+      }
     }
-    var sh = ss.getSheets()[0];
-    if (!sh) {
-      copyFile.setTrashed(true);
-      throw new Error('Sheets 範本中找不到任何工作表');
-    }
-    
-    sh.getRange('A1').setValue(dataModel.SCHOOL_NAME);
-    sh.getRange('B2').setValue(dataModel.YEAR_MONTH);
-    sh.getRange('B3').setValue(dataModel.TOTAL_MEAL_COUNT);
-    sh.getRange('B4').setValue(dataModel.GROSS_AMOUNT);
-
-    if (isPreview) {
-      sh.getRange('A6').setValue('⚠️ 預覽文件 — 非正式申請資料');
-    }
-
-    SpreadsheetApp.flush();
-
-    var blob = copyFile.getAs('application/pdf');
-    var fileName = Config.getSystemConfig('SCHOOL_CODE', 'SCH001') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
-                   template.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
-                   '_TemplateV' + template.template_version;
-    if (isPreview) {
-      fileName += '_PREVIEW';
-    }
-    fileName += '.pdf';
-    blob.setName(fileName);
-
-    var pdfFile = outputFolder.createFile(blob);
-    copyFile.setTrashed(true);
-
-    return pdfFile;
   }
 
   /**

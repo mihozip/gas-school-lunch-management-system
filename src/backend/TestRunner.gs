@@ -53,6 +53,15 @@ var TestRunner = (function() {
       throw err;
     }
 
+    // 驗證測試模式隔離
+    Config.setTestMode(true);
+    if (Config.getReportRootFolderId() !== testFolderId) {
+      var err = new Error('🛑 安全防護：測試模式下 getReportRootFolderId 未回傳 TEST_REPORT_FOLDER_ID。');
+      err.code = 'TEST_ISOLATION_FAILED';
+      throw err;
+    }
+    Config.setTestMode(false);
+
     var identity = AuthService.getCurrentIdentity();
     if (identity.role !== 'system_admin') {
       var err = new Error('🛑 安全防護：僅限 system_admin 執行測試！');
@@ -109,6 +118,19 @@ var TestRunner = (function() {
       performance: {},
       test_results: []
     };
+
+    var uatFolderId = Config.getProperty('REPORT_ROOT_FOLDER_ID');
+    var initialUatFileCount = 0;
+    if (uatFolderId) {
+      try {
+        var uatFolder = DriveApp.getFolderById(uatFolderId);
+        var filesIter = uatFolder.getFiles();
+        while (filesIter.hasNext()) {
+          filesIter.next();
+          initialUatFileCount++;
+        }
+      } catch (e) {}
+    }
 
     try {
       assertSafeTestEnvironment();
@@ -319,12 +341,28 @@ var TestRunner = (function() {
       var docId = Config.getProperty('TEST_TEMPLATE_DOC_ID');
       var closingId = 'CLOSE_TEST_T13';
       var templateId = 'TMP_TEST_T13';
+      var testRunId = Utils.generateUUID();
       
       var res;
       var pdfFile;
+      var fLedger, fAlloc, fSummary;
       var mimeType = '';
       var size = 0;
       var tempFileCleaned = false;
+      var negativeCheckSuccess = false;
+
+      var folderId = Config.getReportRootFolderId();
+      var testFolder = DriveApp.getFolderById(folderId);
+
+      // Record active file IDs before rendering
+      var beforeFileIds = [];
+      var beforeIter = testFolder.getFiles();
+      while (beforeIter.hasNext()) {
+        var f = beforeIter.next();
+        if (f.getName().indexOf('temp_render_doc_') === 0 && !f.isTrashed()) {
+          beforeFileIds.push(f.getId());
+        }
+      }
 
       try {
         // 1. 建立 closed closing fixture
@@ -333,17 +371,28 @@ var TestRunner = (function() {
           year_month: '2026-09',
           status: 'closed',
           is_current: true,
-          gross_amount_minor: 600,
-          meal_count_total: 10
+          gross_amount_minor: 6000,
+          meal_count_total: 1
         });
 
-        // 2. 建立必要 artifacts (使用模擬的 MOCK_FILE_ 前綴 ID)
+        // 2. 建立真實的 CSV 檔案 (隔離在 testFolder)
+        fLedger = testFolder.createFile('temp_t13_ledger_' + testRunId + '.csv', 
+          'eligible_meal_count,student_name,student_name_masked,date,class_code_snapshot,meal_price_snapshot,meal_price_minor_snapshot\n1,陳小明,陳○明,2026-09-01,G1C1,60.00,6000',
+          MimeType.PLAIN_TEXT);
+        fAlloc = testFolder.createFile('temp_t13_alloc_' + testRunId + '.csv',
+          'funding_source,settlement_amount_minor,final_amount_minor\ntownship,6000,6000',
+          MimeType.PLAIN_TEXT);
+        fSummary = testFolder.createFile('temp_t13_summary_' + testRunId + '.csv',
+          'funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,6000,6000,6000,1',
+          MimeType.PLAIN_TEXT);
+
+        // 3. 建立必要 artifacts
         SheetRepository.appendRecord('ClosingArtifacts', {
           artifact_id: 'ART_T13_L',
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'dailyMealLedger_export',
-          file_id: 'MOCK_FILE_LEDGER',
+          file_id: fLedger.getId(),
           archived: false,
           enabled: true
         });
@@ -353,7 +402,7 @@ var TestRunner = (function() {
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'fundingAllocationLedger_export',
-          file_id: 'MOCK_FILE_ALLOC',
+          file_id: fAlloc.getId(),
           archived: false,
           enabled: true
         });
@@ -363,12 +412,12 @@ var TestRunner = (function() {
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'monthlyFundingSummary_export',
-          file_id: 'MOCK_FILE_SUMMARY',
+          file_id: fSummary.getId(),
           archived: false,
           enabled: true
         });
 
-        // 3. 建立範本
+        // 4. 建立範本
         SheetRepository.appendRecord('ReportTemplates', {
           template_id: templateId,
           report_type: 'TOWNSHIP_FUNDING_APPLICATION',
@@ -379,7 +428,7 @@ var TestRunner = (function() {
           enabled: true
         });
 
-        // 4. 呼叫 generatePreviewReport (這會間接執行 renderDocsTemplate)
+        // 5. 呼叫 generatePreviewReport (這會間接執行 renderDocsTemplate)
         res = ReportService.generatePreviewReport(closingId, 'TOWNSHIP_FUNDING_APPLICATION', templateId);
         
         if (res && res.fileId) {
@@ -387,13 +436,50 @@ var TestRunner = (function() {
           mimeType = pdfFile.getMimeType();
           size = pdfFile.getSize();
           
-          var outputFolder = DriveApp.getFolderById(Config.getReportRootFolderId());
-          var tempFiles = outputFolder.getFilesByName('temp_render_doc_*');
-          tempFileCleaned = !tempFiles.hasNext();
+          // Check active file IDs after rendering
+          var afterIter = testFolder.getFiles();
+          var leakedFiles = [];
+          while (afterIter.hasNext()) {
+            var f = afterIter.next();
+            if (f.getName().indexOf('temp_render_doc_') === 0 && !f.isTrashed()) {
+              if (beforeFileIds.indexOf(f.getId()) === -1) {
+                leakedFiles.push(f.getId());
+              }
+            }
+          }
+          tempFileCleaned = (leakedFiles.length === 0);
         }
+
+        // 6. 負向測試：建立一個未刪除的假 temp 檔案，驗證清理檢查是否正確回傳 false
+        var fakeFile = testFolder.createFile('temp_render_doc_fake_' + testRunId + '.doc', 'dummy', MimeType.PLAIN_TEXT);
+        try {
+          var checkIter = testFolder.getFiles();
+          var leakedCount = 0;
+          while (checkIter.hasNext()) {
+            var f = checkIter.next();
+            if (f.getName().indexOf('temp_render_doc_') === 0 && !f.isTrashed()) {
+              if (beforeFileIds.indexOf(f.getId()) === -1) {
+                leakedCount++;
+              }
+            }
+          }
+          negativeCheckSuccess = (leakedCount > 0); // Should be true because of fakeFile
+        } finally {
+          fakeFile.setTrashed(true);
+        }
+
       } finally {
         if (pdfFile) {
-          pdfFile.setTrashed(true);
+          try { pdfFile.setTrashed(true); } catch(e) {}
+        }
+        if (fLedger) {
+          try { fLedger.setTrashed(true); } catch(e) {}
+        }
+        if (fAlloc) {
+          try { fAlloc.setTrashed(true); } catch(e) {}
+        }
+        if (fSummary) {
+          try { fSummary.setTrashed(true); } catch(e) {}
         }
         // Clean up fixtures
         SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
@@ -403,8 +489,8 @@ var TestRunner = (function() {
         SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T13_S');
       }
 
-      var expectedStr = 'true,application/pdf,true,true';
-      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned;
+      var expectedStr = 'true,application/pdf,true,true,true';
+      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned + ',' + negativeCheckSuccess;
       return { expected: expectedStr, actual: actualStr };
     });
 
@@ -412,12 +498,28 @@ var TestRunner = (function() {
       var sheetId = Config.getProperty('TEST_TEMPLATE_SHEET_ID');
       var closingId = 'CLOSE_TEST_T14';
       var templateId = 'TMP_TEST_T14';
+      var testRunId = Utils.generateUUID();
       
       var res;
       var pdfFile;
+      var fLedger, fAlloc, fSummary;
       var mimeType = '';
       var size = 0;
       var tempFileCleaned = false;
+      var negativeCheckSuccess = false;
+
+      var folderId = Config.getReportRootFolderId();
+      var testFolder = DriveApp.getFolderById(folderId);
+
+      // Record active file IDs before rendering
+      var beforeFileIds = [];
+      var beforeIter = testFolder.getFiles();
+      while (beforeIter.hasNext()) {
+        var f = beforeIter.next();
+        if (f.getName().indexOf('temp_render_sheet_') === 0 && !f.isTrashed()) {
+          beforeFileIds.push(f.getId());
+        }
+      }
 
       try {
         // 1. 建立 closed closing fixture
@@ -426,17 +528,28 @@ var TestRunner = (function() {
           year_month: '2026-09',
           status: 'closed',
           is_current: true,
-          gross_amount_minor: 600,
-          meal_count_total: 10
+          gross_amount_minor: 6000,
+          meal_count_total: 1
         });
 
-        // 2. 建立必要 artifacts (使用模擬的 MOCK_FILE_ 前綴 ID)
+        // 2. 建立真實的 CSV 檔案 (隔離在 testFolder)
+        fLedger = testFolder.createFile('temp_t14_ledger_' + testRunId + '.csv', 
+          'eligible_meal_count,student_name,student_name_masked,date,class_code_snapshot,meal_price_snapshot,meal_price_minor_snapshot\n1,陳小明,陳○明,2026-09-01,G1C1,60.00,6000',
+          MimeType.PLAIN_TEXT);
+        fAlloc = testFolder.createFile('temp_t14_alloc_' + testRunId + '.csv',
+          'funding_source,settlement_amount_minor,final_amount_minor\ntownship,6000,6000',
+          MimeType.PLAIN_TEXT);
+        fSummary = testFolder.createFile('temp_t14_summary_' + testRunId + '.csv',
+          'funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,6000,6000,6000,1',
+          MimeType.PLAIN_TEXT);
+
+        // 3. 建立必要 artifacts
         SheetRepository.appendRecord('ClosingArtifacts', {
           artifact_id: 'ART_T14_L',
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'dailyMealLedger_export',
-          file_id: 'MOCK_FILE_LEDGER',
+          file_id: fLedger.getId(),
           archived: false,
           enabled: true
         });
@@ -446,7 +559,7 @@ var TestRunner = (function() {
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'fundingAllocationLedger_export',
-          file_id: 'MOCK_FILE_ALLOC',
+          file_id: fAlloc.getId(),
           archived: false,
           enabled: true
         });
@@ -456,12 +569,12 @@ var TestRunner = (function() {
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'monthlyFundingSummary_export',
-          file_id: 'MOCK_FILE_SUMMARY',
+          file_id: fSummary.getId(),
           archived: false,
           enabled: true
         });
 
-        // 3. 建立範本
+        // 4. 建立範本
         SheetRepository.appendRecord('ReportTemplates', {
           template_id: templateId,
           report_type: 'COUNTY_FUNDING_APPLICATION',
@@ -472,7 +585,7 @@ var TestRunner = (function() {
           enabled: true
         });
 
-        // 4. 呼叫 generatePreviewReport (這會間接執行 renderSheetsTemplate)
+        // 5. 呼叫 generatePreviewReport (這會間接執行 renderSheetsTemplate)
         res = ReportService.generatePreviewReport(closingId, 'COUNTY_FUNDING_APPLICATION', templateId);
         
         if (res && res.fileId) {
@@ -480,13 +593,50 @@ var TestRunner = (function() {
           mimeType = pdfFile.getMimeType();
           size = pdfFile.getSize();
           
-          var outputFolder = DriveApp.getFolderById(Config.getReportRootFolderId());
-          var tempFiles = outputFolder.getFilesByName('temp_render_sheet_*');
-          tempFileCleaned = !tempFiles.hasNext();
+          // Check active file IDs after rendering
+          var afterIter = testFolder.getFiles();
+          var leakedFiles = [];
+          while (afterIter.hasNext()) {
+            var f = afterIter.next();
+            if (f.getName().indexOf('temp_render_sheet_') === 0 && !f.isTrashed()) {
+              if (beforeFileIds.indexOf(f.getId()) === -1) {
+                leakedFiles.push(f.getId());
+              }
+            }
+          }
+          tempFileCleaned = (leakedFiles.length === 0);
         }
+
+        // 6. 負向測試：建立一個未刪除的假 temp 檔案，驗證清理檢查是否正確回傳 false
+        var fakeFile = testFolder.createFile('temp_render_sheet_fake_' + testRunId + '.sheet', 'dummy', MimeType.PLAIN_TEXT);
+        try {
+          var checkIter = testFolder.getFiles();
+          var leakedCount = 0;
+          while (checkIter.hasNext()) {
+            var f = checkIter.next();
+            if (f.getName().indexOf('temp_render_sheet_') === 0 && !f.isTrashed()) {
+              if (beforeFileIds.indexOf(f.getId()) === -1) {
+                leakedCount++;
+              }
+            }
+          }
+          negativeCheckSuccess = (leakedCount > 0); // Should be true because of fakeFile
+        } finally {
+          fakeFile.setTrashed(true);
+        }
+
       } finally {
         if (pdfFile) {
-          pdfFile.setTrashed(true);
+          try { pdfFile.setTrashed(true); } catch(e) {}
+        }
+        if (fLedger) {
+          try { fLedger.setTrashed(true); } catch(e) {}
+        }
+        if (fAlloc) {
+          try { fAlloc.setTrashed(true); } catch(e) {}
+        }
+        if (fSummary) {
+          try { fSummary.setTrashed(true); } catch(e) {}
         }
         // Clean up fixtures
         SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
@@ -496,8 +646,8 @@ var TestRunner = (function() {
         SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T14_S');
       }
 
-      var expectedStr = 'true,application/pdf,true,true';
-      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned;
+      var expectedStr = 'true,application/pdf,true,true,true';
+      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned + ',' + negativeCheckSuccess;
       return { expected: expectedStr, actual: actualStr };
     });
 
@@ -531,7 +681,7 @@ var TestRunner = (function() {
       return { expected: 'approved', actual: approved.status };
     });
 
-    runTest('T17', '未核准 (draft) 範本禁止用於產生正式報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'AUTH', false, false, false, false, false, function() {
+    runTest('T17', '未核准 (draft) 範本禁止用於產生正式報表', ['MonthClosings', 'ReportTemplates'], 'AUTH', false, false, false, false, false, function() {
       var closingId = 'CLOSE_TEST_T17';
       var templateId = 'TMP_TEST_T17';
       var triggered = false;
@@ -544,25 +694,11 @@ var TestRunner = (function() {
           year_month: '2026-09',
           status: 'closed',
           is_current: true,
-          gross_amount_minor: 600,
-          meal_count_total: 10
+          gross_amount_minor: 6000,
+          meal_count_total: 1
         });
 
-        // 2. 建立必要 artifacts
-        var arts = ['dailyMealLedger_export', 'fundingAllocationLedger_export', 'monthlyFundingSummary_export'];
-        arts.forEach(function(type) {
-          SheetRepository.appendRecord('ClosingArtifacts', {
-            artifact_id: 'ART_T17_' + type,
-            closing_id: closingId,
-            year_month: '2026-09',
-            artifact_type: type,
-            file_id: 'DUMMY_FILE_ID_T17',
-            archived: false,
-            enabled: true
-          });
-        });
-
-        // 3. 建立 draft template
+        // 2. 建立 draft template
         SheetRepository.appendRecord('ReportTemplates', {
           template_id: templateId,
           report_type: 'DAILY_SCHOOL_MEAL_SUMMARY',
@@ -580,16 +716,22 @@ var TestRunner = (function() {
         // Clean up fixtures
         SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
         SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T17_dailyMealLedger_export');
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T17_fundingAllocationLedger_export');
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T17_monthlyFundingSummary_export');
       }
       return { expected: 'true,DRAFT_TEMPLATE_NOT_ALLOWED', actual: triggered + ',' + errorCode };
     });
 
-    runTest('T18', 'PUBLIC_SUMMARY 隱私級別去識別化移除姓名學號', ['MonthClosings', 'ClosingArtifacts'], 'UNIT', false, false, false, false, false, function() {
+    runTest('T18', 'PUBLIC_SUMMARY 隱私級別去識別化與金額不一致驗證', ['MonthClosings', 'ClosingArtifacts'], 'UNIT', false, false, false, false, false, function() {
       var closingId = 'CLOSE_TEST_T18';
+      var testRunId = Utils.generateUUID();
       var model;
+      var triggered = false;
+      var errorCode = '';
+
+      var folderId = Config.getReportRootFolderId();
+      var testFolder = DriveApp.getFolderById(folderId);
+
+      var fLedger, fAlloc, fSummary;
+
       try {
         // 1. 建立 closed closing fixture
         SheetRepository.appendRecord('MonthClosings', {
@@ -597,17 +739,28 @@ var TestRunner = (function() {
           year_month: '2026-09',
           status: 'closed',
           is_current: true,
-          gross_amount_minor: 600,
-          meal_count_total: 10
+          gross_amount_minor: 6000,
+          meal_count_total: 1
         });
 
-        // 2. 建立必要 artifacts (使用模擬的 MOCK_FILE_ 前綴 ID)
+        // 2. 建立真實的 CSV 檔案 (隔離在 testFolder)
+        fLedger = testFolder.createFile('temp_t18_ledger_' + testRunId + '.csv', 
+          'eligible_meal_count,student_name,student_name_masked,date,class_code_snapshot,meal_price_snapshot,meal_price_minor_snapshot\n1,陳小明,陳○明,2026-09-01,G1C1,60.00,6000',
+          MimeType.PLAIN_TEXT);
+        fAlloc = testFolder.createFile('temp_t18_alloc_' + testRunId + '.csv',
+          'funding_source,settlement_amount_minor,final_amount_minor\ntownship,6000,6000',
+          MimeType.PLAIN_TEXT);
+        fSummary = testFolder.createFile('temp_t18_summary_' + testRunId + '.csv',
+          'funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,6000,6000,6000,1',
+          MimeType.PLAIN_TEXT);
+
+        // 3. 建立必要 artifacts
         SheetRepository.appendRecord('ClosingArtifacts', {
           artifact_id: 'ART_T18_L',
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'dailyMealLedger_export',
-          file_id: 'MOCK_FILE_LEDGER',
+          file_id: fLedger.getId(),
           archived: false,
           enabled: true
         });
@@ -617,7 +770,7 @@ var TestRunner = (function() {
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'fundingAllocationLedger_export',
-          file_id: 'MOCK_FILE_ALLOC',
+          file_id: fAlloc.getId(),
           archived: false,
           enabled: true
         });
@@ -627,15 +780,35 @@ var TestRunner = (function() {
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'monthlyFundingSummary_export',
-          file_id: 'MOCK_FILE_SUMMARY',
+          file_id: fSummary.getId(),
           archived: false,
           enabled: true
         });
 
-        // 3. 呼叫正式的 buildReportDataModel 建立 PUBLIC_SUMMARY 模式
+        // 4. 呼叫正式的 buildReportDataModel 建立 PUBLIC_SUMMARY 模式
         model = ReportService.buildReportDataModel(closingId, 'PUBLIC_SUMMARY');
+
+        // 5. 故意修改 Summary 金額為 5999，觸發 REPORT_SUMMARY_TOTAL_MISMATCH
+        fSummary.setContent('funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,5999,5999,6000,1');
+        
+        try {
+          ReportService.buildReportDataModel(closingId, 'PUBLIC_SUMMARY');
+        } catch (ex) {
+          triggered = true;
+          errorCode = ex.code || '';
+        }
+
       } finally {
-        // 4. 清理 fixtures
+        if (fLedger) {
+          try { fLedger.setTrashed(true); } catch(e) {}
+        }
+        if (fAlloc) {
+          try { fAlloc.setTrashed(true); } catch(e) {}
+        }
+        if (fSummary) {
+          try { fSummary.setTrashed(true); } catch(e) {}
+        }
+        // 清理 fixtures
         SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
         SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T18_L');
         SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T18_A');
@@ -643,7 +816,9 @@ var TestRunner = (function() {
       }
       
       var name = model && model.DAILY_ROWS && model.DAILY_ROWS[0] ? model.DAILY_ROWS[0].student_name : '';
-      return { expected: '***', actual: name };
+      var expectedStr = '***,true,REPORT_SUMMARY_TOTAL_MISMATCH';
+      var actualStr = name + ',' + triggered + ',' + errorCode;
+      return { expected: expectedStr, actual: actualStr };
     });
 
     runTest('T19', '報表會簽核章工作流核可狀態移轉與稽核日誌寫入', ['ReportGenerationRuns', 'ApprovalRecords', 'AuditLogs'], 'INTEGRATION', false, false, false, false, false, function() {
@@ -661,7 +836,7 @@ var TestRunner = (function() {
           year_month: '2026-09',
           template_id: 'TMP_T19',
           template_version: 1,
-          output_file_id: 'DUMMY_FILE_T19',
+          output_file_id: 'TEST_OUTPUT_T19',
           report_hash: 'hash123_t19',
           started_by: 'system_admin',
           completed_at: Utils.formatDateTime(new Date()),
@@ -695,10 +870,30 @@ var TestRunner = (function() {
   } finally {
     Config.setTestMode(false);
   }
-    var endTime = new Date();
-    report.test_finished_at = Utils.formatDateTime(endTime);
-    report.total_duration_ms = endTime.getTime() - startTime.getTime();
-    report.test_results = results;
+
+  if (uatFolderId) {
+    try {
+      var uatFolder = DriveApp.getFolderById(uatFolderId);
+      var filesIter = uatFolder.getFiles();
+      var finalUatFileCount = 0;
+      while (filesIter.hasNext()) {
+        filesIter.next();
+        finalUatFileCount++;
+      }
+      if (finalUatFileCount !== initialUatFileCount) {
+        report.errors.push('🛑 安全隔離校驗失敗：UAT／PRODUCTION 報表資料夾檔案數在測試前後不一致（前：' + initialUatFileCount + '，後：' + finalUatFileCount + '）！');
+        report.failed++;
+      }
+    } catch (e) {
+      report.errors.push('驗證 UAT／PRODUCTION 報表資料夾檔案數失敗: ' + e.message);
+      report.failed++;
+    }
+  }
+
+  var endTime = new Date();
+  report.test_finished_at = Utils.formatDateTime(endTime);
+  report.total_duration_ms = endTime.getTime() - startTime.getTime();
+  report.test_results = results;
 
     // 將測試報告存入 Drive 指定資料夾
     var folderId = Config.getProperty('TEST_REPORT_FOLDER_ID');

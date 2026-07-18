@@ -112,7 +112,8 @@ function loadLedgerRecords() {
     .catch(function(err) {
       hideLoading();
       showToast(err.message, 'error');
-      tbody.innerHTML = '<tr><td colspan="14" style="text-align: center; color: var(--status-blocking); font-weight:bold;">載入失敗: ' + err.message + '</td></tr>';
+      var msg = err.message || '未知錯誤';
+      tbody.innerHTML = '<tr><td colspan="14" style="text-align: center; color: var(--status-blocking); font-weight:bold;">載入失敗: ' + escapeHtml(msg) + '</td></tr>';
     });
 }
 

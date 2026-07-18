@@ -319,6 +319,53 @@ function checkFrontendNoDirectConfig() {
   console.log('✓ Frontend Config service calls check completed.');
 }
 
+function checkBannedIntegrityRules() {
+  const searchInDir = (dir) => {
+    fs.readdirSync(dir).forEach(file => {
+      const fullPath = path.join(dir, file);
+      if (fs.statSync(fullPath).isDirectory()) {
+        searchInDir(fullPath);
+      } else {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        
+        // 1. getFilesByName with *
+        if (/getFilesByName\([^)]*\*/.test(content)) {
+          logError(`檔案 ${fullPath} 中的 getFilesByName 呼叫含有 * 萬用字元！`);
+        }
+        
+        // 2. innerHTML + err.message in frontend
+        if (file.endsWith('.html')) {
+          const lines = content.split('\n');
+          lines.forEach((line, idx) => {
+            if (line.includes('innerHTML') && line.includes('err.message')) {
+              if (!line.includes('escapeHtml(')) {
+                logError(`前端檔案 ${fullPath} 第 ${idx + 1} 行之 innerHTML 呼叫含有未跳脫之 err.message！`);
+              }
+            }
+          });
+        }
+
+        // 3. parseFloat(l.meal_price_snapshot
+        if (content.includes('parseFloat(l.meal_price_snapshot')) {
+          logError(`檔案 ${fullPath} 含有 parseFloat(l.meal_price_snapshot)！`);
+        }
+        
+        // 4. MOCK_FILE_ in backend
+        if (fullPath.includes('src/backend') && content.includes('MOCK_FILE_')) {
+          logError(`後端檔案 ${fullPath} 含有 MOCK_FILE_！`);
+        }
+
+        // 5. DUMMY_FILE_ in TestRunner
+        if (fullPath.includes('TestRunner.gs') && content.includes('DUMMY_FILE_')) {
+          logError(`TestRunner.gs 含有 DUMMY_FILE_！`);
+        }
+      }
+    });
+  };
+  searchInDir('src');
+  console.log('✓ Banned integrity rules check completed.');
+}
+
 checkCodeGsDuplicateApis();
 checkBannedPatterns();
 checkPlaceholderTests();
@@ -335,6 +382,7 @@ checkRequireRoleArguments();
 checkDeployShOrTrue();
 checkServiceExportsAndCalls();
 checkFrontendNoDirectConfig();
+checkBannedIntegrityRules();
 
 if (errorsCount > 0) {
   console.error(`\n🛑 靜態完整性檢查失敗！共發現 ${errorsCount} 個錯誤。`);

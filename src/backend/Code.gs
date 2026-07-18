@@ -103,24 +103,49 @@ function apiGetSystemStatus() {
  */
 function apiGetMealEntryConfig() {
   try {
-    var deadline = Config.getSystemConfig('DAILY_CONFIRM_DEADLINE', '09:00');
-    var allowRetroactiveEdit = Config.getSystemConfig('ALLOW_RETROACTIVE_EDIT', 'FALSE') === 'TRUE';
-    var retroactiveEditDays = parseInt(Config.getSystemConfig('RETROACTIVE_EDIT_DAYS', '0'), 10);
-    if (isNaN(retroactiveEditDays) || retroactiveEditDays < 0) {
-      retroactiveEditDays = 0;
+    var rawDeadline = Config.getSystemConfig('DAILY_CONFIRM_DEADLINE', '09:00');
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(rawDeadline)) {
+      var err = new Error('🛑 系統設定錯誤：登記截止時間格式不正確，應為 HH:mm 格式。');
+      err.code = 'CONFIG_INVALID_DEADLINE';
+      throw err;
     }
-    var allowSameDayAdminOverride = Config.getSystemConfig('ALLOW_SAME_DAY_ADMIN_OVERRIDE', 'FALSE') === 'TRUE';
+
+    var rawDaysVal = Config.getSystemConfig('RETROACTIVE_EDIT_DAYS', '0');
+    var rawDays = Number(rawDaysVal);
+    if (!Number.isFinite(rawDays) || !Number.isInteger(rawDays) || rawDays < 0) {
+      var err = new Error('🛑 系統設定錯誤：補登限制天數必須為非負整數。');
+      err.code = 'CONFIG_INVALID_RETROACTIVE_DAYS';
+      throw err;
+    }
+
+    var rawRetroactiveEdit = Config.getSystemConfig('ALLOW_RETROACTIVE_EDIT', 'FALSE');
+    if (rawRetroactiveEdit !== true && rawRetroactiveEdit !== false && 
+        rawRetroactiveEdit !== 'TRUE' && rawRetroactiveEdit !== 'FALSE') {
+      var err = new Error('🛑 系統設定錯誤：ALLOW_RETROACTIVE_EDIT 必須為 Boolean 值。');
+      err.code = 'CONFIG_INVALID_BOOLEAN';
+      throw err;
+    }
+    var allowRetroactiveEdit = (rawRetroactiveEdit === true || rawRetroactiveEdit === 'TRUE');
+
+    var rawAdminOverride = Config.getSystemConfig('ALLOW_SAME_DAY_ADMIN_OVERRIDE', 'FALSE');
+    if (rawAdminOverride !== true && rawAdminOverride !== false && 
+        rawAdminOverride !== 'TRUE' && rawAdminOverride !== 'FALSE') {
+      var err = new Error('🛑 系統設定錯誤：ALLOW_SAME_DAY_ADMIN_OVERRIDE 必須為 Boolean 值。');
+      err.code = 'CONFIG_INVALID_BOOLEAN';
+      throw err;
+    }
+    var allowSameDayAdminOverride = (rawAdminOverride === true || rawAdminOverride === 'TRUE');
 
     var data = {
-      deadline: deadline,
+      deadline: rawDeadline,
       allowRetroactiveEdit: allowRetroactiveEdit,
-      retroactiveEditDays: retroactiveEditDays,
+      retroactiveEditDays: rawDays,
       allowSameDayAdminOverride: allowSameDayAdminOverride
     };
 
     return Utils.createResponse(true, data);
   } catch (e) {
-    return Utils.createResponse(false, null, 'CONFIG_ERROR', '無法獲取點餐登記系統配置', e.message);
+    return Utils.createResponse(false, null, e.code || 'CONFIG_ERROR', '無法獲取點餐登記系統配置', e.message);
   }
 }
 

@@ -116,7 +116,8 @@ function initDailyMealEntryView() {
     .catch(function(err) {
       hideLoading();
       showToast('載入系統設定失敗: ' + err.message, 'error');
-      document.getElementById('entryTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--status-blocking); font-weight:bold;">系統設定載入失敗：' + err.message + '，請重新整理頁面。</td></tr>';
+      var msg = err.message || '未知錯誤';
+      document.getElementById('entryTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--status-blocking); font-weight:bold;">系統設定載入失敗：' + escapeHtml(msg) + '，請重新整理頁面。</td></tr>';
     });
 }
 
@@ -231,7 +232,8 @@ function loadDailyMealEntry() {
     .catch(function(err) {
       hideLoading();
       showToast(err.message, 'error');
-      document.getElementById('entryTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--status-blocking); font-weight:bold;">' + err.message + '</td></tr>';
+      var msg = err.message || '未知錯誤';
+      document.getElementById('entryTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--status-blocking); font-weight:bold;">' + escapeHtml(msg) + '</td></tr>';
     });
 }
 

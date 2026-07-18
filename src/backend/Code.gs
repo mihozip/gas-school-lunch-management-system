@@ -99,6 +99,32 @@ function apiGetSystemStatus() {
 }
 
 /**
+ * 獲取每日點餐登記的系統配置
+ */
+function apiGetMealEntryConfig() {
+  try {
+    var deadline = Config.getSystemConfig('DAILY_CONFIRM_DEADLINE', '09:00');
+    var allowRetroactiveEdit = Config.getSystemConfig('ALLOW_RETROACTIVE_EDIT', 'FALSE') === 'TRUE';
+    var retroactiveEditDays = parseInt(Config.getSystemConfig('RETROACTIVE_EDIT_DAYS', '0'), 10);
+    if (isNaN(retroactiveEditDays) || retroactiveEditDays < 0) {
+      retroactiveEditDays = 0;
+    }
+    var allowSameDayAdminOverride = Config.getSystemConfig('ALLOW_SAME_DAY_ADMIN_OVERRIDE', 'FALSE') === 'TRUE';
+
+    var data = {
+      deadline: deadline,
+      allowRetroactiveEdit: allowRetroactiveEdit,
+      retroactiveEditDays: retroactiveEditDays,
+      allowSameDayAdminOverride: allowSameDayAdminOverride
+    };
+
+    return Utils.createResponse(true, data);
+  } catch (e) {
+    return Utils.createResponse(false, null, 'CONFIG_ERROR', '無法獲取點餐登記系統配置', e.message);
+  }
+}
+
+/**
  * 獲取登入診斷資訊 (提供給 AuthDiagnostic 元件)
  */
 function apiGetAuthorizationDiagnostic() {

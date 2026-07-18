@@ -175,7 +175,7 @@ var FundingCalculationService = (function() {
 
     var allocations = [];
     var sumFixedMinor = 0;
-    var percentageBaseMode = Config.get('PERCENTAGE_BASE_MODE') || 'GROSS_AMOUNT';
+    var percentageBaseMode = Config.getSystemConfig('PERCENTAGE_BASE_MODE', 'GROSS_AMOUNT');
 
     // 3. 逐條規則計算 Raw Amount (分數或小數)
     sortedRules.forEach(function(rule) {
@@ -252,7 +252,7 @@ var FundingCalculationService = (function() {
       }
 
       // 4. 進位計算 (DAILY_ROUND 逐餐進位，MONTHLY_ROUND 暫存 rounded 等待月結時調整)
-      var rounded = MoneyService.divideAndRound(alloc.raw_amount_numerator, alloc.raw_amount_denominator, Config.get('ROUNDING_MODE'));
+      var rounded = MoneyService.divideAndRound(alloc.raw_amount_numerator, alloc.raw_amount_denominator, Config.getSystemConfig('ROUNDING_MODE', 'HALF_UP'));
       alloc.rounded_amount_minor = rounded;
       alloc.final_amount_minor = rounded;
 
@@ -265,15 +265,15 @@ var FundingCalculationService = (function() {
     });
 
     // 5. 尾差處理 (以確保各來源分攤總額與餐費 minor 元件絕對相等)
-    var roundingRule = Config.get('ROUNDING_RULE') || 'DAILY_ROUND';
+    var roundingRule = Config.getSystemConfig('ROUNDING_RULE', 'DAILY_ROUND');
     if (roundingRule === 'DAILY_ROUND') {
       // 5A. 計算精度尾差調整
-      MoneyService.allocateResidual(grossMinor, allocations, Config.get('ROUNDING_RESIDUAL_POLICY'), Config.get('ROUNDING_RESIDUAL_SOURCE'));
+      MoneyService.allocateResidual(grossMinor, allocations, Config.getSystemConfig('ROUNDING_RESIDUAL_POLICY', 'SELF_PAY'), Config.getSystemConfig('ROUNDING_RESIDUAL_SOURCE', 'township'));
       allocations.forEach(function(a) { a.calculation_amount_minor = a.final_amount_minor; });
 
       // 5B. 結算精度尾差調整
       var totalSettlementMinor = MoneyService.convertCalculationToSettlement(grossMinor);
-      MoneyService.calculateSettlementResidual(totalSettlementMinor, allocations, Config.get('ROUNDING_RESIDUAL_POLICY'), Config.get('ROUNDING_RESIDUAL_SOURCE'));
+      MoneyService.calculateSettlementResidual(totalSettlementMinor, allocations, Config.getSystemConfig('ROUNDING_RESIDUAL_POLICY', 'SELF_PAY'), Config.getSystemConfig('ROUNDING_RESIDUAL_SOURCE', 'township'));
       
       // 寫入 warning issue (若有自付額且非 0，建立提示警告)
       var selfPayAlloc = allocations.filter(function(x) { return x.funding_source === 'self_pay'; })[0];
@@ -317,7 +317,7 @@ var FundingCalculationService = (function() {
   }
 
   function sortRules(rules) {
-    var mixedOrder = Config.get('MIXED_RULE_CALCULATION_ORDER') || 'PERCENTAGE_THEN_FIXED';
+    var mixedOrder = Config.getSystemConfig('MIXED_RULE_CALCULATION_ORDER', 'PERCENTAGE_THEN_FIXED');
     
     var list = JSON.parse(JSON.stringify(rules));
     

@@ -209,8 +209,8 @@ var TestRunner = (function() {
     }
 
     // 🧪 19 個真實有效測試
-    
-    runTest('T1', '元轉 minor units (整數分轉換)', [], 'UNIT', false, false, false, false, false, function() {
+    try {
+      runTest('T1', '元轉 minor units (整數分轉換)', [], 'UNIT', false, false, false, false, false, function() {
       var minor = MoneyService.yuanToMinor(60.05);
       return { expected: 6005, actual: minor };
     });
@@ -290,7 +290,7 @@ var TestRunner = (function() {
       } catch (e) {
         if (e.code === 'PERIOD_CLOSED') triggered = true;
       } finally {
-        SheetRepository.deleteRecord('MonthClosings', 'closing_id', 'CLOSE_LOCK_TEST');
+        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', 'CLOSE_LOCK_TEST');
       }
       return { expected: true, actual: triggered };
     });
@@ -315,26 +315,190 @@ var TestRunner = (function() {
       return { expected: true, actual: pDuration < 15000 };
     });
 
-    runTest('T13', '建立 Google Docs 報表範本', ['ReportTemplates'], 'DOCS', false, true, true, false, false, function() {
+    runTest('T13', '實際呼叫 Docs Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'DOCS', false, true, true, false, false, function() {
       var docId = Config.getProperty('TEST_TEMPLATE_DOC_ID');
-      var t = ReportService.createReportTemplate({
-        report_type: 'TOWNSHIP_FUNDING_APPLICATION',
-        template_name: '公所範本(Doc)',
-        template_format: 'GOOGLE_DOCS',
-        template_file_id: docId
-      });
-      return { expected: 'draft', actual: t.status };
+      var closingId = 'CLOSE_TEST_T13';
+      var templateId = 'TMP_TEST_T13';
+      
+      var res;
+      var pdfFile;
+      var mimeType = '';
+      var size = 0;
+      var tempFileCleaned = false;
+
+      try {
+        // 1. 建立 closed closing fixture
+        SheetRepository.appendRecord('MonthClosings', {
+          closing_id: closingId,
+          year_month: '2026-09',
+          status: 'closed',
+          is_current: true,
+          gross_amount_minor: 600,
+          meal_count_total: 10
+        });
+
+        // 2. 建立必要 artifacts (使用模擬的 MOCK_FILE_ 前綴 ID)
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T13_L',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'dailyMealLedger_export',
+          file_id: 'MOCK_FILE_LEDGER',
+          archived: false,
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T13_A',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'fundingAllocationLedger_export',
+          file_id: 'MOCK_FILE_ALLOC',
+          archived: false,
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T13_S',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'monthlyFundingSummary_export',
+          file_id: 'MOCK_FILE_SUMMARY',
+          archived: false,
+          enabled: true
+        });
+
+        // 3. 建立範本
+        SheetRepository.appendRecord('ReportTemplates', {
+          template_id: templateId,
+          report_type: 'TOWNSHIP_FUNDING_APPLICATION',
+          template_name: '公所範本(Doc)',
+          template_format: 'GOOGLE_DOCS',
+          template_file_id: docId,
+          status: 'approved',
+          enabled: true
+        });
+
+        // 4. 呼叫 generatePreviewReport (這會間接執行 renderDocsTemplate)
+        res = ReportService.generatePreviewReport(closingId, 'TOWNSHIP_FUNDING_APPLICATION', templateId);
+        
+        if (res && res.fileId) {
+          pdfFile = DriveApp.getFileById(res.fileId);
+          mimeType = pdfFile.getMimeType();
+          size = pdfFile.getSize();
+          
+          var outputFolder = DriveApp.getFolderById(Config.getReportRootFolderId());
+          var tempFiles = outputFolder.getFilesByName('temp_render_doc_*');
+          tempFileCleaned = !tempFiles.hasNext();
+        }
+      } finally {
+        if (pdfFile) {
+          pdfFile.setTrashed(true);
+        }
+        // Clean up fixtures
+        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
+        SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T13_L');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T13_A');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T13_S');
+      }
+
+      var expectedStr = 'true,application/pdf,true,true';
+      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned;
+      return { expected: expectedStr, actual: actualStr };
     });
 
-    runTest('T14', '建立 Google Sheets 報表範本', ['ReportTemplates'], 'SHEETS', false, true, false, true, false, function() {
+    runTest('T14', '實際呼叫 Sheets Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'SHEETS', false, true, false, true, false, function() {
       var sheetId = Config.getProperty('TEST_TEMPLATE_SHEET_ID');
-      var t = ReportService.createReportTemplate({
-        report_type: 'COUNTY_FUNDING_APPLICATION',
-        template_name: '縣府範本(Sheet)',
-        template_format: 'GOOGLE_SHEETS',
-        template_file_id: sheetId
-      });
-      return { expected: 'draft', actual: t.status };
+      var closingId = 'CLOSE_TEST_T14';
+      var templateId = 'TMP_TEST_T14';
+      
+      var res;
+      var pdfFile;
+      var mimeType = '';
+      var size = 0;
+      var tempFileCleaned = false;
+
+      try {
+        // 1. 建立 closed closing fixture
+        SheetRepository.appendRecord('MonthClosings', {
+          closing_id: closingId,
+          year_month: '2026-09',
+          status: 'closed',
+          is_current: true,
+          gross_amount_minor: 600,
+          meal_count_total: 10
+        });
+
+        // 2. 建立必要 artifacts (使用模擬的 MOCK_FILE_ 前綴 ID)
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T14_L',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'dailyMealLedger_export',
+          file_id: 'MOCK_FILE_LEDGER',
+          archived: false,
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T14_A',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'fundingAllocationLedger_export',
+          file_id: 'MOCK_FILE_ALLOC',
+          archived: false,
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T14_S',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'monthlyFundingSummary_export',
+          file_id: 'MOCK_FILE_SUMMARY',
+          archived: false,
+          enabled: true
+        });
+
+        // 3. 建立範本
+        SheetRepository.appendRecord('ReportTemplates', {
+          template_id: templateId,
+          report_type: 'COUNTY_FUNDING_APPLICATION',
+          template_name: '縣府範本(Sheet)',
+          template_format: 'GOOGLE_SHEETS',
+          template_file_id: sheetId,
+          status: 'approved',
+          enabled: true
+        });
+
+        // 4. 呼叫 generatePreviewReport (這會間接執行 renderSheetsTemplate)
+        res = ReportService.generatePreviewReport(closingId, 'COUNTY_FUNDING_APPLICATION', templateId);
+        
+        if (res && res.fileId) {
+          pdfFile = DriveApp.getFileById(res.fileId);
+          mimeType = pdfFile.getMimeType();
+          size = pdfFile.getSize();
+          
+          var outputFolder = DriveApp.getFolderById(Config.getReportRootFolderId());
+          var tempFiles = outputFolder.getFilesByName('temp_render_sheet_*');
+          tempFileCleaned = !tempFiles.hasNext();
+        }
+      } finally {
+        if (pdfFile) {
+          pdfFile.setTrashed(true);
+        }
+        // Clean up fixtures
+        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
+        SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T14_L');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T14_A');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T14_S');
+      }
+
+      var expectedStr = 'true,application/pdf,true,true';
+      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned;
+      return { expected: expectedStr, actual: actualStr };
     });
 
     runTest('T15', '建立 HTML 報表範本', ['ReportTemplates'], 'UNIT', false, false, false, false, false, function() {
@@ -343,6 +507,8 @@ var TestRunner = (function() {
         template_name: '全校每日統計範本(Html)',
         template_format: 'HTML'
       });
+      // 清理
+      SheetRepository.deleteRecordById('ReportTemplates', 'template_id', t.template_id);
       return { expected: 'draft', actual: t.status };
     });
 
@@ -360,59 +526,175 @@ var TestRunner = (function() {
         });
       }
       var approved = ReportService.approveReportTemplate(target.template_id);
+      // 清理
+      SheetRepository.deleteRecordById('ReportTemplates', 'template_id', target.template_id);
       return { expected: 'approved', actual: approved.status };
     });
 
-    runTest('T17', '未核准 (draft) 範本禁止用於產生正式報表', [], 'AUTH', false, false, false, false, false, function() {
+    runTest('T17', '未核准 (draft) 範本禁止用於產生正式報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'AUTH', false, false, false, false, false, function() {
+      var closingId = 'CLOSE_TEST_T17';
+      var templateId = 'TMP_TEST_T17';
       var triggered = false;
+      var errorCode = '';
+      
       try {
-        var t = ReportService.createReportTemplate({
-          report_type: 'DAILY_SCHOOL_MEAL_SUMMARY',
-          template_name: '未核准草稿',
-          template_format: 'HTML'
+        // 1. 建立 closed closing fixture
+        SheetRepository.appendRecord('MonthClosings', {
+          closing_id: closingId,
+          year_month: '2026-09',
+          status: 'closed',
+          is_current: true,
+          gross_amount_minor: 600,
+          meal_count_total: 10
         });
-        ReportService.generateOfficialReport('CLOSE_DUMMY_123', 'DAILY_SCHOOL_MEAL_SUMMARY', t.template_id);
+
+        // 2. 建立必要 artifacts
+        var arts = ['dailyMealLedger_export', 'fundingAllocationLedger_export', 'monthlyFundingSummary_export'];
+        arts.forEach(function(type) {
+          SheetRepository.appendRecord('ClosingArtifacts', {
+            artifact_id: 'ART_T17_' + type,
+            closing_id: closingId,
+            year_month: '2026-09',
+            artifact_type: type,
+            file_id: 'DUMMY_FILE_ID_T17',
+            archived: false,
+            enabled: true
+          });
+        });
+
+        // 3. 建立 draft template
+        SheetRepository.appendRecord('ReportTemplates', {
+          template_id: templateId,
+          report_type: 'DAILY_SCHOOL_MEAL_SUMMARY',
+          template_name: '未核准草稿T17',
+          template_format: 'HTML',
+          status: 'draft',
+          enabled: true
+        });
+
+        ReportService.generateOfficialReport(closingId, 'DAILY_SCHOOL_MEAL_SUMMARY', templateId);
       } catch (e) {
         triggered = true;
+        errorCode = e.code || '';
+      } finally {
+        // Clean up fixtures
+        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
+        SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T17_dailyMealLedger_export');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T17_fundingAllocationLedger_export');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T17_monthlyFundingSummary_export');
       }
-      return { expected: true, actual: triggered };
+      return { expected: 'true,DRAFT_TEMPLATE_NOT_ALLOWED', actual: triggered + ',' + errorCode };
     });
 
-    runTest('T18', 'PUBLIC_SUMMARY 隱私級別去識別化移除姓名學號', [], 'UNIT', false, false, false, false, false, function() {
-      var mockModel = {
-        SCHOOL_NAME: '實機實驗學校',
-        DAILY_ROWS: [
-          { date: '2026-09-01', student_name: '陳○明', class_code: 'G1C1', meal_count: 1, meal_price: 65 }
-        ],
-        FUNDING_ROWS: []
-      };
-      var row = mockModel.DAILY_ROWS[0];
-      var name = row.student_name;
-      name = '***';
+    runTest('T18', 'PUBLIC_SUMMARY 隱私級別去識別化移除姓名學號', ['MonthClosings', 'ClosingArtifacts'], 'UNIT', false, false, false, false, false, function() {
+      var closingId = 'CLOSE_TEST_T18';
+      var model;
+      try {
+        // 1. 建立 closed closing fixture
+        SheetRepository.appendRecord('MonthClosings', {
+          closing_id: closingId,
+          year_month: '2026-09',
+          status: 'closed',
+          is_current: true,
+          gross_amount_minor: 600,
+          meal_count_total: 10
+        });
+
+        // 2. 建立必要 artifacts (使用模擬的 MOCK_FILE_ 前綴 ID)
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T18_L',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'dailyMealLedger_export',
+          file_id: 'MOCK_FILE_LEDGER',
+          archived: false,
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T18_A',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'fundingAllocationLedger_export',
+          file_id: 'MOCK_FILE_ALLOC',
+          archived: false,
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: 'ART_T18_S',
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'monthlyFundingSummary_export',
+          file_id: 'MOCK_FILE_SUMMARY',
+          archived: false,
+          enabled: true
+        });
+
+        // 3. 呼叫正式的 buildReportDataModel 建立 PUBLIC_SUMMARY 模式
+        model = ReportService.buildReportDataModel(closingId, 'PUBLIC_SUMMARY');
+      } finally {
+        // 4. 清理 fixtures
+        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T18_L');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T18_A');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T18_S');
+      }
+      
+      var name = model && model.DAILY_ROWS && model.DAILY_ROWS[0] ? model.DAILY_ROWS[0].student_name : '';
       return { expected: '***', actual: name };
     });
 
-    runTest('T19', '報表會簽核章工作流核可狀態移轉', ['ApprovalRecords'], 'INTEGRATION', false, false, false, false, false, function() {
-      var run = { report_run_id: 'RUN_REP_MOCK_123', closing_id: 'CLOSE_MOCK_123', report_hash: 'hash123' };
-      var record = {
-        approval_id: 'APP_TEST_01',
-        closing_id: run.closing_id,
-        report_run_id: run.report_run_id,
-        approval_stage: 'lunch_admin_checked',
-        approver_role: 'lunch_admin',
-        approver_email: 'lunch@school.example',
-        approver_name: '林秘書',
-        decision: 'approved',
-        comment: '餐數確認無誤',
-        acted_at: Utils.formatDateTime(new Date()),
-        source_hash: run.report_hash,
-        created_at: Utils.formatDateTime(new Date())
-      };
-      SheetRepository.appendRecord('ApprovalRecords', record);
-      return { expected: 'approved', actual: record.decision };
-    });
+    runTest('T19', '報表會簽核章工作流核可狀態移轉與稽核日誌寫入', ['ReportGenerationRuns', 'ApprovalRecords', 'AuditLogs'], 'INTEGRATION', false, false, false, false, false, function() {
+      var runId = 'RUN_T19_TEST';
+      var closingId = 'CLOSE_T19_TEST';
+      var record;
+      var auditLog;
+      
+      try {
+        // 1. 建立 ReportGenerationRuns fixture
+        SheetRepository.appendRecord('ReportGenerationRuns', {
+          report_run_id: runId,
+          closing_id: closingId,
+          closing_version: 1,
+          year_month: '2026-09',
+          template_id: 'TMP_T19',
+          template_version: 1,
+          output_file_id: 'DUMMY_FILE_T19',
+          report_hash: 'hash123_t19',
+          started_by: 'system_admin',
+          completed_at: Utils.formatDateTime(new Date()),
+          is_current: true
+        });
 
+        // 2. 呼叫 approveReport
+        record = ReportService.approveReport(runId, 'lunch_admin_checked', '測試核可');
+
+        // 3. 查詢 AuditLogs
+        var logs = SheetRepository.findRecords('AuditLogs', function(x) {
+          return x.record_id === runId && x.action === 'APPROVE_REPORT';
+        });
+        auditLog = logs[0];
+      } finally {
+        // 4. 清理 fixtures
+        SheetRepository.deleteRecordById('ReportGenerationRuns', 'report_run_id', runId);
+        if (record) {
+          SheetRepository.deleteRecordById('ApprovalRecords', 'approval_id', record.approval_id);
+        }
+        if (auditLog) {
+          SheetRepository.deleteRecordById('AuditLogs', 'log_id', auditLog.log_id);
+        }
+      }
+
+      var identity = AuthService.getCurrentIdentity();
+      var expectedStr = 'approved,lunch_admin_checked,hash123_t19,true,true';
+      var actualStr = record.decision + ',' + record.approval_stage + ',' + record.source_hash + ',' + (!!record.approval_id) + ',' + (!!auditLog);
+      return { expected: expectedStr, actual: actualStr };
+    });
+  } finally {
     Config.setTestMode(false);
+  }
     var endTime = new Date();
     report.test_finished_at = Utils.formatDateTime(endTime);
     report.total_duration_ms = endTime.getTime() - startTime.getTime();

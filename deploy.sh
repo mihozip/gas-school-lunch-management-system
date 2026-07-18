@@ -84,12 +84,18 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 # 3. 驗證 clasp 授權狀態
-STATUS_OUT=$(npx clasp status 2>&1 || true)
+if ! STATUS_OUT=$(npx clasp status 2>&1); then
+  echo "${STATUS_OUT}"
+  exit 1
+fi
 if [[ "$STATUS_OUT" == *"No credentials found"* || "$STATUS_OUT" == *"unauthenticated"* ]]; then
   echo "🔑 [CLASP_LOGIN_REQUIRED] clasp 未授權登入，準備引導登入..."
   npx clasp login
   # 再次檢測登入
-  STATUS_OUT=$(npx clasp status 2>&1 || true)
+  if ! STATUS_OUT=$(npx clasp status 2>&1); then
+    echo "${STATUS_OUT}"
+    exit 1
+  fi
   if [[ "$STATUS_OUT" == *"No credentials"* || "$STATUS_OUT" == *"unauthenticated"* ]]; then
     echo "🛑 錯誤 [CLASP_LOGIN_REQUIRED]：未完成 Google 帳號授權，無法繼續部署。"
     exit 1
@@ -135,19 +141,13 @@ if [ -z "$SCRIPT_ID" ]; then
   rm -rf temp_clasp_create
   mkdir -p temp_clasp_create
   
-  CREATE_OUT=$(npx clasp create --title "${TITLE}" --type webapp --rootDir "./temp_clasp_create" 2>&1 || true)
-  
-  if [[ "$CREATE_OUT" == *"User has not enabled the Apps Script API"* || "$CREATE_OUT" == *"enable"* ]]; then
-    echo "🛑 錯誤 [APPS_SCRIPT_API_DISABLED]：建立專案失敗！"
-    echo "👉 請點選下方連結開啟 Google Apps Script API 服務設定（切換為『啟用』）："
-    echo "   https://script.google.com/home/usersettings"
-    rm -rf temp_clasp_create
-    exit 1
-  fi
-
-  if [ ! -f "temp_clasp_create/.clasp.json" ]; then
+  if ! CREATE_OUT=$(npx clasp create --title "${TITLE}" --type webapp --rootDir "./temp_clasp_create" 2>&1); then
     echo "🛑 錯誤 [CREATE_SCRIPT_FAILED]：建立專案失敗！"
     echo "錯誤細節: ${CREATE_OUT}"
+    if [[ "$CREATE_OUT" == *"User has not enabled the Apps Script API"* || "$CREATE_OUT" == *"enable"* ]]; then
+      echo "👉 請點選下方連結開啟 Google Apps Script API 服務設定（切換為『啟用』）："
+      echo "   https://script.google.com/home/usersettings"
+    fi
     rm -rf temp_clasp_create
     exit 1
   fi
@@ -184,29 +184,35 @@ EOF
 # 7. 執行 clasp push
 echo "📤 正在上傳原始碼至 Google Apps Script (clasp push)..."
 if [ "$FORCE_PUSH" = true ]; then
-  PUSH_OUT=$(npx clasp push --force 2>&1)
-  PUSH_EXIT=$?
+  if ! PUSH_OUT=$(npx clasp push --force 2>&1); then
+    echo "🛑 錯誤 [PUSH_FAILED]：原始碼上傳失敗！"
+    echo "${PUSH_OUT}"
+    echo "👉 新建立的 Script ID: ${SCRIPT_ID}"
+    echo "👉 Apps Script 編輯器網址: https://script.google.com/d/${SCRIPT_ID}/edit"
+    echo "👉 請確認權限無誤後執行重試指令: npx clasp push --force"
+    exit 1
+  fi
 else
-  PUSH_OUT=$(npx clasp push 2>&1)
-  PUSH_EXIT=$?
-fi
-if [ $PUSH_EXIT -ne 0 ] || [[ "$PUSH_OUT" == *"Error"* || "$PUSH_OUT" == *"failed"* ]]; then
-  echo "🛑 錯誤 [PUSH_FAILED]：原始碼上傳失敗！"
-  echo "👉 新建立的 Script ID: ${SCRIPT_ID}"
-  echo "👉 Apps Script 編輯器網址: https://script.google.com/d/${SCRIPT_ID}/edit"
-  echo "👉 請確認權限無誤後執行重試指令: npx clasp push --force"
-  exit 1
+  if ! PUSH_OUT=$(npx clasp push 2>&1); then
+    echo "🛑 錯誤 [PUSH_FAILED]：原始碼上傳失敗！"
+    echo "${PUSH_OUT}"
+    echo "👉 新建立的 Script ID: ${SCRIPT_ID}"
+    echo "👉 Apps Script 編輯器網址: https://script.google.com/d/${SCRIPT_ID}/edit"
+    echo "👉 請確認權限無誤後執行重試指令: npx clasp push"
+    exit 1
+  fi
 fi
 
 # 8. 建立線上新版本 (clasp version)
 echo "🏷️ 正在建立線上新版本 (clasp version)..."
-VERSION_OUT=$(npx clasp version "Auto-deployed by deploy.sh at $(date)" 2>&1)
-VERSION_EXIT=$?
-VERSION_NUM=$(node -e "const out = process.argv[1]; const m = out.match(/Created version\s+(\d+)/i) || out.match(/Version\s+(\d+)/i); console.log(m ? m[1] : '');" "${VERSION_OUT}")
-
-if [ $VERSION_EXIT -ne 0 ] || [ -z "$VERSION_NUM" ]; then
+if ! VERSION_OUT=$(npx clasp version "Auto-deployed by deploy.sh at $(date)" 2>&1); then
   echo "🛑 錯誤 [VERSION_CREATION_FAILED]：建立線上版本編號失敗。"
-  echo "VERSION_OUT 原始輸出："
+  echo "${VERSION_OUT}"
+  exit 1
+fi
+VERSION_NUM=$(node -e "const out = process.argv[1]; const m = out.match(/Created version\s+(\d+)/i) || out.match(/Version\s+(\d+)/i); console.log(m ? m[1] : '');" "${VERSION_OUT}")
+if [ -z "$VERSION_NUM" ]; then
+  echo "🛑 錯誤 [VERSION_CREATION_FAILED]：建立線上版本編號失敗，無法自輸出解析版本號。"
   echo "${VERSION_OUT}"
   exit 1
 fi
@@ -230,18 +236,16 @@ if [ "$NO_DEPLOY" = false ]; then
 
   if [ -n "$DEPLOY_ID" ]; then
     echo "🚀 正在更新既有部署 (ID: ${DEPLOY_ID}, 版本: ${VERSION_NUM})...."
-    UPDATE_OUT=$(npx clasp redeploy "${DEPLOY_ID}" -V "${VERSION_NUM}" -d "${ENV_UPPER} Deployment Update" 2>&1 || true)
-    if [[ "$UPDATE_OUT" == *"Error"* || "$UPDATE_OUT" == *"failed"* ]]; then
+    if ! UPDATE_OUT=$(npx clasp redeploy "${DEPLOY_ID}" -V "${VERSION_NUM}" -d "${ENV_UPPER} Deployment Update" 2>&1); then
       echo "🛑 錯誤 [DEPLOYMENT_UPDATE_FAILED]：更新部署失敗。保留原 deployment ID: ${DEPLOY_ID}"
-      echo "細節: ${UPDATE_OUT}"
+      echo "${UPDATE_OUT}"
       exit 1
     fi
   else
-    echo "🚀 正在建立新部署 (版本: ${VERSION_NUM})..."
-    DEPLOY_OUT=$(npx clasp deploy -V "${VERSION_NUM}" -d "${ENV_UPPER} First Deployment" 2>&1 || true)
-    if [[ "$DEPLOY_OUT" == *"Error"* || "$DEPLOY_OUT" == *"failed"* ]]; then
+    echo "🚀 正在建立新部署 (版本: ${VERSION_NUM})...."
+    if ! DEPLOY_OUT=$(npx clasp deploy -V "${VERSION_NUM}" -d "${ENV_UPPER} First Deployment" 2>&1); then
       echo "🛑 錯誤 [DEPLOYMENT_CREATION_FAILED]：建立部署失敗。"
-      echo "細節: ${DEPLOY_OUT}"
+      echo "${DEPLOY_OUT}"
       exit 1
     fi
     # 抓取 Deployment ID
@@ -249,7 +253,11 @@ if [ "$NO_DEPLOY" = false ]; then
   fi
 
   # 從 npx clasp deployments 讀取 Web App URL，並對應目前的 DEPLOY_ID
-  DEPLOYMENTS_LIST=$(npx clasp deployments 2>&1 || true)
+  if ! DEPLOYMENTS_LIST=$(npx clasp deployments 2>&1); then
+    echo "🛑 錯誤 [DEPLOYMENTS_FETCH_FAILED]：無法取得 deployments 清單。"
+    echo "${DEPLOYMENTS_LIST}"
+    exit 1
+  fi
   WEB_APP_URL=$(node -e "
     const out = process.argv[1];
     const depId = process.argv[2];
@@ -286,7 +294,8 @@ if [ "$NO_DEPLOY" = false ]; then
   fi
 
   if ! [[ "$WEB_APP_URL" =~ ^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$ ]]; then
-    echo "⚠️ 警告 [WEB_APP_URL_MISMATCH]：Web App URL 格式異常：${WEB_APP_URL}"
+    echo "🛑 錯誤 [WEB_APP_URL_MISMATCH]：Web App URL 格式異常：${WEB_APP_URL}"
+    exit 1
   fi
 
   # 保存部署狀態 (原子操作：先寫入臨時檔案，再 mv 覆蓋)

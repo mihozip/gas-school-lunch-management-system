@@ -12,7 +12,7 @@ var TriggerService = (function() {
     AuthService.requireRole('system_admin');
     
     // 取得設定的觸發時間 (時)
-    var triggerHourStr = Config.get('DAILY_CALCULATION_TRIGGER_HOUR') || '10';
+    var triggerHourStr = Config.getSystemConfig('DAILY_CALCULATION_TRIGGER_HOUR', '10');
     var triggerHour = parseInt(triggerHourStr, 10);
     if (isNaN(triggerHour) || triggerHour < 0 || triggerHour > 23) {
       triggerHour = 10;

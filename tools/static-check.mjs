@@ -31,14 +31,19 @@ function checkCodeGsDuplicateApis() {
 
 function checkBannedPatterns() {
   const banned = [
-    { pattern: 'LockService.runWithLock', desc: '不得呼叫原生 LockService.runWithLock，應使用 LockServiceHelper.runWithLock' },
+    { pattern: 'LockService.runWithLock', desc: '不得呼召原生 LockService.runWithLock，應使用 LockServiceHelper.runWithLock' },
     { pattern: 'SetupService.bootstrapSystem', desc: '舊初始化 bootstrapSystem 應移除' },
     { pattern: 'apiBootstrapSystem', desc: '舊 API apiBootstrapSystem 應移除' },
     { pattern: '1AbC_doc_id_xyz', desc: '測試中不得出現假 Doc File ID placeholder' },
     { pattern: '1AbC_sheet_id_xyz', desc: '測試中不得出現假 Sheet File ID placeholder' },
     { pattern: '}).error', desc: '不得以 }).error 讀取鎖定回傳值，LockServiceHelper 已直回傳 fn 的執行結果' },
     { pattern: 'ss.saveAndClose()', desc: 'Spreadsheet 無 saveAndClose 方法，應使用 SpreadsheetApp.flush()' },
-    { pattern: "expected: 'approved', actual: 'approved'", desc: 'TestRunner 中禁止使用寫死的 approved 驗證案例' }
+    { pattern: "expected: 'approved', actual: 'approved'", desc: 'TestRunner 中禁止使用寫死的 approved 驗證案例' },
+    { pattern: 'Config.get(', desc: '禁止出現 Config.get(，應使用 Config.getSystemConfig(' },
+    { pattern: 'SheetRepository.all(', desc: '禁止出現 SheetRepository.all(，應使用 SheetRepository.getAllRecords(' },
+    { pattern: 'SheetRepository.deleteRecord(', desc: '禁止使用已刪除 the deleteRecord 方法' },
+    { pattern: 'CLOSE_DUMMY', desc: '禁止出現 CLOSE_DUMMY' },
+    { pattern: "approver_email: 'lunch@school.example'", desc: '禁止直接組 ApprovalRecords 假測試' }
   ];
   
   const searchInDir = (dir) => {
@@ -66,11 +71,15 @@ function checkPlaceholderTests() {
   const testRunnerPath = 'src/backend/TestRunner.gs';
   if (!fs.existsSync(testRunnerPath)) return;
   const content = fs.readFileSync(testRunnerPath, 'utf8');
+  
   if (content.includes("expected: 'success', actual: 'success'")) {
     logError('TestRunner.gs 含有未實作的假測試 (expected/actual placeholder)');
-  } else {
-    console.log('✓ Placeholder tests check passed.');
   }
+  if (content.includes("name = '***'")) {
+    logError("TestRunner.gs 中禁止手動 name = '***' 進行測試掩蓋，必須呼叫正式的 privacy masking 或 buildReportDataModel");
+  }
+  
+  console.log('✓ Placeholder and handcoded masking tests check completed.');
 }
 
 function checkSetupServiceExports() {
@@ -142,6 +151,12 @@ function checkPackageJsonLifecycleScript() {
   } else {
     console.log('✓ package.json lifecycle scripts check passed.');
   }
+
+  if (!scripts['check:static']) {
+    logError('package.json scripts 中必須存在 check:static 指令');
+  } else {
+    console.log('✓ package.json check:static script check passed.');
+  }
 }
 
 function checkBootstrapDraftSet() {
@@ -167,7 +182,7 @@ function checkReportServiceRoles() {
     if (content.includes('function ' + func)) {
       const idx = content.indexOf('function ' + func);
       const sub = content.substring(idx, idx + 800);
-      if (!sub.includes('AuthService.require')) {
+      if (!sub.includes('AuthService.require') && !sub.includes('validateApprovalRoleForStage')) {
         logError(`ReportService.gs 中的函式 ${func} 缺少 AuthService 權限或角色驗證！`);
       }
     }
@@ -197,6 +212,113 @@ function checkDeployShValidation() {
   }
 }
 
+function checkRequireRoleArguments() {
+  const searchInDir = (dir) => {
+    fs.readdirSync(dir).forEach(file => {
+      const fullPath = path.join(dir, file);
+      if (fs.statSync(fullPath).isDirectory()) {
+        searchInDir(fullPath);
+      } else if (file.endsWith('.gs')) {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        // requireRole 只能傳 1 個參數
+        const regex = /requireRole\s*\([^)]*,[^)]*\)/;
+        if (regex.test(content)) {
+          logError(`檔案 ${fullPath} 中的 requireRole 傳入了多個參數！如果需要多角色請使用 requireAnyRole。`);
+        }
+      }
+    });
+  };
+  searchInDir('src');
+  console.log('✓ requireRole arguments check completed.');
+}
+
+function checkDeployShOrTrue() {
+  const deployPath = 'deploy.sh';
+  if (!fs.existsSync(deployPath)) return;
+  const content = fs.readFileSync(deployPath, 'utf8');
+  if (content.includes('|| true')) {
+    logError('deploy.sh 中不得對 clasp 呼叫使用 || true，必須檢查 exit status 或使用 set -e 攔截錯誤。');
+  } else {
+    console.log('✓ deploy.sh || true check passed.');
+  }
+}
+
+function checkServiceExportsAndCalls() {
+  const gsFiles = {};
+  const serviceExports = {};
+
+  // 1. Read all .gs files
+  const backendDir = 'src/backend';
+  fs.readdirSync(backendDir).forEach(file => {
+    if (file.endsWith('.gs')) {
+      const content = fs.readFileSync(path.join(backendDir, file), 'utf8');
+      gsFiles[file] = content;
+
+      const serviceMatch = content.match(/var\s+(\w+)\s*=\s*\(function\s*\(\)\s*\{/);
+      if (serviceMatch) {
+        const serviceName = serviceMatch[1];
+        const lastReturnIdx = content.lastIndexOf('return {');
+        if (lastReturnIdx !== -1) {
+          const returnBlock = content.substring(lastReturnIdx);
+          const startBracket = returnBlock.indexOf('{');
+          const endBracket = returnBlock.indexOf('}');
+          if (startBracket !== -1 && endBracket !== -1) {
+            const exportContent = returnBlock.substring(startBracket + 1, endBracket);
+            const exportLines = exportContent.split(',');
+            const exports = [];
+            exportLines.forEach(line => {
+              const parts = line.split(':');
+              const expName = parts[0].trim();
+              if (expName) {
+                exports.push(expName);
+              }
+            });
+            serviceExports[serviceName] = exports;
+          }
+        }
+      }
+    }
+  });
+
+  // 2. Scan all calls like ServiceName.methodName
+  Object.keys(gsFiles).forEach(file => {
+    const content = gsFiles[file];
+    const matches = [...content.matchAll(/(\w+)\.(\w+)\s*\(/g)];
+    matches.forEach(m => {
+      const serviceName = m[1];
+      const methodName = m[2];
+      
+      const excluded = ['SpreadsheetApp', 'DriveApp', 'Math', 'Date', 'DocumentApp', 'Utilities', 'ScriptApp', 'PropertiesService', 'CacheService', 'Session', 'Object', 'JSON', 'String', 'Number', 'Array', 'console', 'process', 'fs', 'path', 'Utils', 'e'];
+      if (excluded.includes(serviceName)) return;
+
+      if (serviceExports[serviceName]) {
+        if (!serviceExports[serviceName].includes(methodName)) {
+          logError(`檔案 ${file} 呼叫了 ${serviceName}.${methodName}()，但該 Service 未匯出此方法！`);
+        }
+      }
+    });
+  });
+  console.log('✓ Service method calls and exports check passed.');
+}
+
+function checkFrontendNoDirectConfig() {
+  const searchInDir = (dir) => {
+    fs.readdirSync(dir).forEach(file => {
+      const fullPath = path.join(dir, file);
+      if (fs.statSync(fullPath).isDirectory()) {
+        searchInDir(fullPath);
+      } else if (file.endsWith('.html')) {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        if (content.includes('Config.get(') || content.includes('Config.getSystemConfig(') || /<\?.*Config/.test(content)) {
+          logError(`前端檔案 ${fullPath} 中禁止直接呼叫 Config service！請改用後端 API。`);
+        }
+      }
+    });
+  };
+  searchInDir('src/frontend');
+  console.log('✓ Frontend Config service calls check completed.');
+}
+
 checkCodeGsDuplicateApis();
 checkBannedPatterns();
 checkPlaceholderTests();
@@ -209,6 +331,10 @@ checkBootstrapDraftSet();
 checkReportServiceRoles();
 checkSubsidyRateMigrationExport();
 checkDeployShValidation();
+checkRequireRoleArguments();
+checkDeployShOrTrue();
+checkServiceExportsAndCalls();
+checkFrontendNoDirectConfig();
 
 if (errorsCount > 0) {
   console.error(`\n🛑 靜態完整性檢查失敗！共發現 ${errorsCount} 個錯誤。`);

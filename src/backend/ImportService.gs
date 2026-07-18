@@ -216,7 +216,7 @@ var ImportService = (function() {
         
         if (item.action_type === 'CREATE' || item.action_type === 'CREATE_HISTORY') {
           // 刪除建立的紀錄
-          SheetRepository.deleteRecord(targetSheet, pkName, recordId);
+          SheetRepository.deleteRecordById(targetSheet, pkName, recordId);
         } else if (item.action_type === 'UPDATE' || item.action_type === 'CLOSE_HISTORY') {
           // 還原為 before_data
           var originalRecord = JSON.parse(item.before_data);
@@ -267,7 +267,7 @@ var ImportService = (function() {
         var pkName = (targetSheet === 'Students') ? 'student_id' : 'history_id';
         
         if (item.action_type === 'CREATE' || item.action_type === 'CREATE_HISTORY') {
-          SheetRepository.deleteRecord(targetSheet, pkName, recordId);
+          SheetRepository.deleteRecordById(targetSheet, pkName, recordId);
         } else if (item.action_type === 'UPDATE' || item.action_type === 'CLOSE_HISTORY') {
           var originalRecord = JSON.parse(item.before_data);
           SheetRepository.upsertRecord(targetSheet, pkName, recordId, originalRecord);

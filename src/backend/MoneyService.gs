@@ -9,17 +9,17 @@ var MoneyService = (function() {
   var SAFE_MIN = Number.MIN_SAFE_INTEGER || -9007199254740991;
 
   function getMoneyScale() {
-    var scale = Config.get('MONEY_SCALE');
+    var scale = Config.getSystemConfig('MONEY_SCALE', '2');
     return scale !== undefined && scale !== null ? parseInt(scale, 10) : 2;
   }
 
   function getRateScale() {
-    var scale = Config.get('RATE_SCALE');
+    var scale = Config.getSystemConfig('RATE_SCALE', '10000');
     return scale !== undefined && scale !== null ? parseInt(scale, 10) : 10000;
   }
 
   function getRoundingMode() {
-    return Config.get('ROUNDING_MODE') || 'HALF_UP';
+    return Config.getSystemConfig('ROUNDING_MODE', 'HALF_UP');
   }
 
   function validateMinorAmount(minorAmt) {
@@ -161,14 +161,14 @@ var MoneyService = (function() {
    * @param {string} designatedSource 指定來源 (當 policy 為 DESIGNATED_SOURCE 時使用)
    */
   function allocateResidual(totalMinor, allocations, policy, designatedSource) {
-    var pol = policy || Config.get('ROUNDING_RESIDUAL_POLICY') || 'SELF_PAY';
+    var pol = policy || Config.getSystemConfig('ROUNDING_RESIDUAL_POLICY', 'SELF_PAY');
     
     // 1. 計算目前已進位後之總和
     var currentSum = sumMinorAmounts(allocations.map(function(x) { return x.final_amount_minor || 0; }));
     var residual = totalMinor - currentSum;
     
     if (residual === 0) return; // 無尾差
-
+ 
     if (pol === 'SELF_PAY') {
       // 尾差全部由 self_pay 承受
       var target = allocations.filter(function(x) { return x.funding_source === 'self_pay'; })[0];
@@ -184,7 +184,7 @@ var MoneyService = (function() {
       fallbackToPrimary(allocations, residual);
     } else if (pol === 'DESIGNATED_SOURCE') {
       // 由指定來源承擔
-      var src = designatedSource || Config.get('ROUNDING_RESIDUAL_SOURCE') || 'township';
+      var src = designatedSource || Config.getSystemConfig('ROUNDING_RESIDUAL_SOURCE', 'township');
       var target = allocations.filter(function(x) { return x.funding_source === src; })[0];
       if (target) {
         target.final_amount_minor += residual;
@@ -210,17 +210,19 @@ var MoneyService = (function() {
       var count = Math.abs(residual);
       
   function getCalculationScale() {
-    var scale = Config.get('CALCULATION_SCALE');
+    var scale = Config.getSystemConfig('CALCULATION_SCALE', '2');
     return scale !== undefined && scale !== null ? parseInt(scale, 10) : 2;
   }
 
   function getSettlementScale() {
-    var scale = Config.get('SETTLEMENT_SCALE');
+    var scale = Config.getSystemConfig('SETTLEMENT_SCALE', '0');
     return scale !== undefined && scale !== null ? parseInt(scale, 10) : 0;
   }
 
+
+
   function getSettlementRoundingMode() {
-    return Config.get('SETTLEMENT_ROUNDING_MODE') || 'HALF_UP';
+    return Config.getSystemConfig('SETTLEMENT_ROUNDING_MODE', 'HALF_UP');
   }
 
   /**
@@ -245,7 +247,7 @@ var MoneyService = (function() {
    * 分配結算精度尾差
    */
   function calculateSettlementResidual(totalSettlementMinor, allocations, policy, designatedSource) {
-    var pol = policy || Config.get('ROUNDING_RESIDUAL_POLICY') || 'SELF_PAY';
+    var pol = policy || Config.getSystemConfig('ROUNDING_RESIDUAL_POLICY', 'SELF_PAY');
     
     var currentSum = sumMinorAmounts(allocations.map(function(x) { return x.settlement_amount_minor || 0; }));
     var residual = totalSettlementMinor - currentSum;
@@ -263,7 +265,7 @@ var MoneyService = (function() {
     } else if (pol === 'PRIMARY_FUNDER') {
       fallbackSettlementToPrimary(allocations, residual);
     } else if (pol === 'DESIGNATED_SOURCE') {
-      var src = designatedSource || Config.get('ROUNDING_RESIDUAL_SOURCE') || 'township';
+      var src = designatedSource || Config.getSystemConfig('ROUNDING_RESIDUAL_SOURCE', 'township');
       var target = allocations.filter(function(x) { return x.funding_source === src; })[0];
       if (target) {
         target.settlement_amount_minor += residual;

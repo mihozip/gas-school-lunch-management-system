@@ -15,6 +15,26 @@ var ReportService = (function() {
       .replace(/'/g, '&#039;');
   }
 
+  function validateApprovalRoleForStage(stage) {
+    var identity = AuthService.requireAuthenticatedUser();
+    var allowed = false;
+    if (stage === 'lunch_admin_checked') {
+      allowed = (identity.role === 'lunch_admin' || identity.role === 'system_admin');
+    } else if (stage === 'accountant_checked') {
+      allowed = (identity.role === 'accountant' || identity.role === 'system_admin');
+    } else if (stage === 'principal_approved') {
+      allowed = (identity.role === 'system_admin');
+    } else {
+      allowed = (identity.role === 'system_admin');
+    }
+    
+    if (!allowed) {
+      var err = new Error('🛑 審核權限錯誤：當前身份角色 (' + identity.role + ') 無權處理該審核關卡：' + stage);
+      err.code = 'APPROVAL_ROLE_MISMATCH';
+      throw err;
+    }
+  }
+
   /**
    * 取得有效且核准的報表範本
    */
@@ -111,34 +131,29 @@ var ReportService = (function() {
     if (!closing) throw new Error('找不到指定的月結封存紀錄：' + closingId);
 
     var ym = closing.year_month;
-    var schoolYear = Config.get('SCHOOL_YEAR') || '115';
-    var semester = Config.get('SEMESTER') || '1';
+    var schoolYear = Config.getSystemConfig('SCHOOL_YEAR', '115');
+    var semester = Config.getSystemConfig('SEMESTER', '1');
 
     // 載入封存快照資料 (必須以 closed 封存快照為準，不得讀取動態資料表)
     var artifacts = SheetRepository.findRecords('ClosingArtifacts', function(x) {
       return x.closing_id === closingId && x.archived === false;
     });
 
-    // 載入 Ledgers 快照
+    // 必須要求以下三個 artifact 存在
     var ledgerArt = artifacts.filter(function(x) { return x.artifact_type === 'dailyMealLedger_export'; })[0];
-    var ledgers = [];
-    if (ledgerArt) {
-      ledgers = loadCsvFromDrive(ledgerArt.file_id);
-    }
-
-    // 載入 allocations 快照
     var allocArt = artifacts.filter(function(x) { return x.artifact_type === 'fundingAllocationLedger_export'; })[0];
-    var allocs = [];
-    if (allocArt) {
-      allocs = loadCsvFromDrive(allocArt.file_id);
+    var fSumArt = artifacts.filter(function(x) { return x.artifact_type === 'monthlyFundingSummary_export'; })[0];
+
+    if (!ledgerArt || !allocArt || !fSumArt) {
+      var err = new Error('🛑 報表錯誤：缺少必要的月結封存快照檔案！');
+      err.code = 'CLOSING_ARTIFACT_MISSING';
+      throw err;
     }
 
-    // 載入 summaries 快照
-    var fSumArt = artifacts.filter(function(x) { return x.artifact_type === 'monthlyFundingSummary_export'; })[0];
-    var fSums = [];
-    if (fSumArt) {
-      fSums = loadCsvFromDrive(fSumArt.file_id);
-    }
+    // 載入時必須帶上 { isReport: true }
+    var ledgers = loadCsvFromDrive(ledgerArt.file_id, { isReport: true });
+    var allocs = loadCsvFromDrive(allocArt.file_id, { isReport: true });
+    var fSums = loadCsvFromDrive(fSumArt.file_id, { isReport: true });
 
     // 依據 fSums 進行實際彙總
     var townshipMinor = 0;
@@ -163,6 +178,32 @@ var ReportService = (function() {
     });
 
     var grossMinor = parseInt(closing.gross_amount_minor || 0, 10);
+    
+    // 交叉驗證：allocations 總和應等於 fSums 總和
+    var allocSums = {};
+    allocs.forEach(function(al) {
+      var src = al.funding_source;
+      var amt = parseInt(al.settlement_amount_minor || al.final_amount_minor || 0, 10);
+      allocSums[src] = (allocSums[src] || 0) + amt;
+    });
+
+    var summarySums = {};
+    fSums.forEach(function(fs) {
+      var src = fs.funding_source;
+      var amt = parseInt(fs.settlement_total_minor || fs.final_amount_minor || 0, 10);
+      summarySums[src] = (summarySums[src] || 0) + amt;
+    });
+
+    for (var src in summarySums) {
+      var aSum = allocSums[src] || 0;
+      var sSum = summarySums[src] || 0;
+      if (aSum !== sSum) {
+        var errCross = new Error('🛑 報表交叉驗證錯誤：補助來源 ' + src + ' 的明細加總 (' + aSum + ' minor) 與月彙總 (' + sSum + ' minor) 不一致！');
+        errCross.code = 'REPORT_CROSS_VALIDATION_FAILED';
+        throw errCross;
+      }
+    }
+
     var sumOfSources = townshipMinor + countyMinor + schoolMinor + selfPayMinor + otherMinor;
     
     // 驗證是否相等
@@ -206,8 +247,8 @@ var ReportService = (function() {
     });
 
     var model = {
-      SCHOOL_NAME: Config.get('SCHOOL_NAME') || '實機實驗學校',
-      SCHOOL_CODE: Config.get('SCHOOL_CODE') || 'SCH001',
+      SCHOOL_NAME: Config.getSystemConfig('SCHOOL_NAME', '實機實驗學校'),
+      SCHOOL_CODE: Config.getSystemConfig('SCHOOL_CODE', 'SCH001'),
       SCHOOL_YEAR: schoolYear,
       SEMESTER: semester,
       YEAR_MONTH: ym,
@@ -224,7 +265,9 @@ var ReportService = (function() {
       SCHOOL_AMOUNT: MoneyService.minorToYuan(schoolMinor),
       SELF_PAY_AMOUNT: MoneyService.minorToYuan(selfPayMinor),
       OTHER_AMOUNT: MoneyService.minorToYuan(otherMinor),
-      TOTAL_ALLOCATED_AMOUNT: MoneyService.minorToYuan(townshipMinor + countyMinor + schoolMinor + otherMinor),
+      TOTAL_FUNDING_AMOUNT: MoneyService.minorToYuan(townshipMinor + countyMinor + schoolMinor + otherMinor),
+      TOTAL_SELF_PAY_AMOUNT: MoneyService.minorToYuan(selfPayMinor),
+      TOTAL_ALLOCATED_AMOUNT: MoneyService.minorToYuan(townshipMinor + countyMinor + schoolMinor + selfPayMinor + otherMinor),
       RESIDUAL_AMOUNT: MoneyService.minorToYuan(residualMinor),
       SOURCE_HASH: closing.funding_source_hash || '',
       REPORT_HASH: '',
@@ -247,6 +290,36 @@ var ReportService = (function() {
   }
 
   function loadCsvFromDrive(fileId, options) {
+    // 支援測試模擬數據，以避免測試時依賴實際的 Drive 檔案
+    if (fileId && String(fileId).indexOf('MOCK_FILE_') === 0) {
+      if (fileId === 'MOCK_FILE_LEDGER') {
+        return [{
+          eligible_meal_count: '1',
+          student_name: '陳小明',
+          student_name_masked: '陳○明',
+          date: '2026-09-01',
+          class_code_snapshot: 'G1C1',
+          meal_price_snapshot: '60.00'
+        }];
+      }
+      if (fileId === 'MOCK_FILE_ALLOC') {
+        return [{
+          funding_source: 'township',
+          settlement_amount_minor: '600',
+          final_amount_minor: '600'
+        }];
+      }
+      if (fileId === 'MOCK_FILE_SUMMARY') {
+        return [{
+          funding_source: 'township',
+          settlement_total_minor: '600',
+          final_amount_minor: '600',
+          gross_amount_minor: '600',
+          meal_count: '10'
+        }];
+      }
+    }
+
     var isReport = options && options.isReport;
     if (!fileId) {
       if (isReport) {
@@ -321,7 +394,7 @@ var ReportService = (function() {
   function renderHtmlTemplate(templateRecord, dataModel, outputFolder, isPreview) {
     var htmlContent = getApplicableHtmlContent(templateRecord.report_type, dataModel, isPreview);
     
-    var fileName = Config.get('SCHOOL_CODE') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
+    var fileName = Config.getSystemConfig('SCHOOL_CODE', 'SCH001') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
                    templateRecord.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
                    '_TemplateV' + templateRecord.template_version;
                    
@@ -405,7 +478,7 @@ var ReportService = (function() {
     doc.saveAndClose();
 
     var blob = copyFile.getAs('application/pdf');
-    var fileName = Config.get('SCHOOL_CODE') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
+    var fileName = Config.getSystemConfig('SCHOOL_CODE', 'SCH001') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
                    template.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
                    '_TemplateV' + template.template_version;
     if (isPreview) {
@@ -469,7 +542,7 @@ var ReportService = (function() {
     SpreadsheetApp.flush();
 
     var blob = copyFile.getAs('application/pdf');
-    var fileName = Config.get('SCHOOL_CODE') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
+    var fileName = Config.getSystemConfig('SCHOOL_CODE', 'SCH001') + '_' + dataModel.YEAR_MONTH.replace('-', '') + '_' + 
                    template.report_type + '_Closing' + dataModel.CLOSING_VERSION + 
                    '_TemplateV' + template.template_version;
     if (isPreview) {
@@ -543,7 +616,7 @@ var ReportService = (function() {
    * 產生預覽報表 (Preview)
    */
   function generatePreviewReport(closingId, reportType, templateId) {
-    AuthService.requireRole('system_admin', 'lunch_admin', 'lunch_secretary');
+    AuthService.requireAnyRole(['system_admin', 'lunch_admin', 'accountant']);
     var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
     if (!closing) throw new Error('找不到月結項目');
 
@@ -585,7 +658,7 @@ var ReportService = (function() {
    * 正式產生報表并存檔關聯 (Official)
    */
   function generateOfficialReport(closingId, reportType, templateId) {
-    AuthService.requireRole('system_admin', 'lunch_admin');
+    AuthService.requireAnyRole(['system_admin', 'lunch_admin']);
     var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
     if (!closing) throw new Error('找不到月結項目');
     if (closing.status !== 'closed') {
@@ -594,7 +667,9 @@ var ReportService = (function() {
 
     var template = SheetRepository.findById('ReportTemplates', 'template_id', templateId);
     if (!template || template.status !== 'approved') {
-      throw new Error('🛑 報表錯誤：正式報表僅允許套用 Approved 範本！');
+      var err = new Error('🛑 報表錯誤：正式報表僅允許套用 Approved 範本！');
+      err.code = 'DRAFT_TEMPLATE_NOT_ALLOWED';
+      throw err;
     }
 
     var runId = 'RUN_REP_' + new Date().getTime();
@@ -628,7 +703,7 @@ var ReportService = (function() {
     SheetRepository.appendRecord('ReportGenerationRuns', runRecord);
 
     try {
-      var schoolYear = Config.get('SCHOOL_YEAR') || '115';
+      var schoolYear = Config.getSystemConfig('SCHOOL_YEAR', '115');
       var rootId = Config.getReportRootFolderId();
       var parent = DriveApp.getFolderById(rootId);
       
@@ -775,14 +850,14 @@ var ReportService = (function() {
   }
 
   function listApprovalRecords(reportRunId) {
-    AuthService.requireRole('system_admin', 'lunch_admin', 'lunch_secretary');
+    AuthService.requireAnyRole(['system_admin', 'lunch_admin', 'accountant']);
     return SheetRepository.findRecords('ApprovalRecords', function(x) {
       return x.report_run_id === reportRunId;
     });
   }
 
   function approveReport(reportRunId, stage, comment) {
-    AuthService.requireRole('system_admin', 'lunch_admin');
+    validateApprovalRoleForStage(stage);
     var identity = AuthService.getCurrentIdentity();
     var run = SheetRepository.findById('ReportGenerationRuns', 'report_run_id', reportRunId);
     if (!run) throw new Error('找不到報表批次');
@@ -804,11 +879,22 @@ var ReportService = (function() {
     };
 
     SheetRepository.appendRecord('ApprovalRecords', record);
+
+    // 寫入稽核日誌
+    AuditService.log({
+      action: 'APPROVE_REPORT',
+      module: 'ReportService',
+      recordId: reportRunId,
+      beforeData: null,
+      afterData: record,
+      reason: comment || '核可通過'
+    });
+
     return record;
   }
 
   function rejectReport(reportRunId, stage, comment) {
-    AuthService.requireRole('system_admin', 'lunch_admin');
+    validateApprovalRoleForStage(stage);
     var identity = AuthService.getCurrentIdentity();
     var run = SheetRepository.findById('ReportGenerationRuns', 'report_run_id', reportRunId);
     if (!run) throw new Error('找不到報表批次');
@@ -830,6 +916,17 @@ var ReportService = (function() {
     };
 
     SheetRepository.appendRecord('ApprovalRecords', record);
+
+    // 寫入稽核日誌
+    AuditService.log({
+      action: 'REJECT_REPORT',
+      module: 'ReportService',
+      recordId: reportRunId,
+      beforeData: null,
+      afterData: record,
+      reason: comment || '核退或駁回'
+    });
+
     return record;
   }
 

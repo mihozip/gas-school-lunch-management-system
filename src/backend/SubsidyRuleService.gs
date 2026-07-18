@@ -92,7 +92,7 @@ var SubsidyRuleService = (function() {
   }
 
   function getLegacyFormatSetting() {
-    return Config.get('SUBSIDY_RATE_LEGACY_FORMAT') || 'UNKNOWN';
+    return Config.getSystemConfig('SUBSIDY_RATE_LEGACY_FORMAT', 'UNKNOWN');
   }
 
   function convertRawRateToBps(rawVal, format) {
@@ -133,7 +133,7 @@ var SubsidyRuleService = (function() {
 
   function previewSubsidyRateMigration() {
     var format = getLegacyFormatSetting();
-    var rules = SheetRepository.all('SubsidyRules');
+    var rules = SheetRepository.getAllRecords('SubsidyRules');
     
     var list = [];
     rules.forEach(function(r) {
@@ -196,7 +196,7 @@ var SubsidyRuleService = (function() {
     var afterData = [];
     
     var migrationId = 'MIG_' + new Date().getTime();
-    var rules = SheetRepository.all('SubsidyRules');
+    var rules = SheetRepository.getAllRecords('SubsidyRules');
     
     rules.forEach(function(r) {
       if (r.calculation_type !== 'percentage') return;

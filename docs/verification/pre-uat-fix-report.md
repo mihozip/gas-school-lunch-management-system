@@ -2,7 +2,7 @@
 
 ## 1. 修正前與修正後 Commit
 * **修正前 Commit**: `13f4ca7a1a36230101eb300281c62393faedc9c1`
-* **修正後 Commit**: `13595dd1fb79999722048bfbf55f03b03b8e49e0`
+* **修正後 Commit**: `752c7a248a16db0d59e80635ae311ca81d5de314`
 
 ---
 
@@ -146,15 +146,24 @@
 
 ### 3.13 測試自包含隔離與 FundingCalculationService 金額校驗 (新增項目)
 - **測試環境完全自包含**：
-  - T9、T12 不再依賴資料庫既有規則，改為於測試期間動態建立唯一的測試規則與分類，並在 `finally` 區塊中完整清理，確保測試的獨立運作與等冪性。
+  - T9 使用動態建立的 SubsidyCategories 與 SubsidyRules fixture，並在 `finally` 區塊中完整清理。
   - T10 已修正為動態產生 `year_month`，且於 `finally` 階段安全透過 `closing_id` 精確清理 MonthClosing 暫存。
   - T16 已移除對既有草稿範本的依賴，永遠建立自有的 UUID 命名範本，並精確透過 template_id 清理，避免污染資料庫。
   - T11、T17、T19 全數加入動態 UUID 產生機制，禁用固定測試 ID，防止碰撞與殘留。
   - T15 強化 PDF 資料夾斷言，真實確認產出的 PDF 被放置在隔離的 `previewsFolder` 底下。
 - **FundingCalculationService 金額與費率校驗**：
   - 禁用寬鬆的 `parseFloat(ledgerRow.meal_price_snapshot)` 及 `yuanToMinor`，全面改以 strict 模式的 `yuanToMinorStrict` 處理單價與固定補助金額。
-  - 限制 `subsidy_rate` (BPS) 必須為安全整數（以 `Number()`、`Number.isFinite`、`Number.isInteger` 校驗），並調用 `validateRateBasisPoints` 限制其區間。
-  - 已於 T9 新增對非整數費率 (`5000.5`) 及非法單價金額 (`60abc`、`abc`)、比例費率與固定金額缺失、及非法固定金額之負向測試斷言。
+  - 依 `calculation_type` 分支進行必填與類型校驗，`percentage` 規則檢查 `SUBSIDY_RATE_MISSING`/`SUBSIDY_RATE_INVALID`，`fixed_amount` 規則檢查 `SUBSIDY_AMOUNT_MISSING`/`MONEY_INVALID_DECIMAL`。
+  - 已於 T9 建立費率缺失、金額缺失、金額非法、固定金額超額 (`FUNDING_TOTAL_EXCEEDS_GROSS`)、及 rulesOverride 安全限制 (`TEST_OVERRIDE_NOT_ALLOWED`) 之負向測試斷言。
+
+### 3.14 rulesOverride 執行路徑與 Config.getTestMode (新增項目)
+- **Config.gs 正式 export `getTestMode`**：移除 TestRunner.gs 頂層對 Config 的 monkey-patch，改由 Config.gs 正式提供 `getTestMode()` getter 並 export。
+- **rulesOverride 執行路徑已實作**：`calculateFundingForLedgerRow` 新增第五個參數 `options`，當傳入 `options.rulesOverride` 時，跳過 `getApplicableFundingRules` 查詢，改用記憶體中的規則陣列。
+- **安全限制**：`rulesOverride` 僅在 `Config.getTestMode() === true` 時允許使用，否則拋出 `TEST_OVERRIDE_NOT_ALLOWED`。
+- **共用驗證**：新增 `validateApplicableFundingRules()` 函式，資料庫規則與 override 規則共用相同驗證（陣列非空、rule_id 存在、category_id 相符、enabled === true、日期區間、funding_source 不重複）。
+- **固定金額超額修正**：修正 `fixedYuan`/`grossYuan` 未定義 ReferenceError，改以 `MoneyService.minorToYuan()` 轉換。
+- **T12 純記憶體效能測試**：T12 不再建立任何 SubsidyCategories/SubsidyRules fixture，直接以記憶體規則透過 `rulesOverride` 傳入 1000 次迴圈計算。靜態結構檢查已通過。
+- **靜態結構檢查已通過。TestRunner execution status = NOT_RUN。T12 runtime performance = NOT_VERIFIED。**
 
 ---
 

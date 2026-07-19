@@ -13,7 +13,7 @@ var FundingCalculationService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 1. 取得該月份所有的有效 DailyMealLedger 記錄
       var start = yearMonth + '-01';
       var lastDay = new Date(parseInt(yearMonth.substring(0, 4), 10), parseInt(yearMonth.substring(5, 7), 10), 0).getDate();
@@ -150,38 +150,128 @@ var FundingCalculationService = (function() {
         warningsCount: issues.length
       };
 
-    }).error;
+    });
+  }
+  /**
+   * 驗證已取得的補助規則陣列是否合法
+   * @param {Array} rules 規則陣列
+   * @param {string} subsidyCategoryId 補助身分分類 ID
+   * @param {string} dateStr 日期字串 YYYY-MM-DD
+   * @throws {Error} 若規則不合法
+   */
+  function validateApplicableFundingRules(rules, subsidyCategoryId, dateStr) {
+    if (!Array.isArray(rules) || rules.length === 0) {
+      var err = new Error('找不到身分 ' + subsidyCategoryId + ' 於 ' + dateStr + ' 的補助規則設定。');
+      err.code = 'FUNDING_RULE_NOT_FOUND';
+      throw err;
+    }
+
+    var seenSources = {};
+    rules.forEach(function(rule) {
+      // 每筆規則必須有 rule_id
+      if (!rule.rule_id) {
+        var err = new Error('補助規則缺少 rule_id。');
+        err.code = 'FUNDING_RULE_INVALID';
+        throw err;
+      }
+      // subsidy_category_id 必須與 ledgerRow 相符
+      if (rule.subsidy_category_id !== subsidyCategoryId) {
+        var err = new Error('補助規則 ' + rule.rule_id + ' 的 subsidy_category_id (' + rule.subsidy_category_id + ') 與目標身分 (' + subsidyCategoryId + ') 不符。');
+        err.code = 'FUNDING_RULE_CATEGORY_MISMATCH';
+        throw err;
+      }
+      // enabled 必須為 true
+      if (rule.enabled !== true) {
+        var err = new Error('補助規則 ' + rule.rule_id + ' 未啟用 (enabled !== true)。');
+        err.code = 'FUNDING_RULE_DISABLED';
+        throw err;
+      }
+      // 日期區間檢查
+      if (dateStr < rule.effective_start_date || dateStr > rule.effective_end_date) {
+        var err = new Error('補助規則 ' + rule.rule_id + ' 不適用於日期 ' + dateStr + '。');
+        err.code = 'FUNDING_RULE_DATE_OUT_OF_RANGE';
+        throw err;
+      }
+      // 相同 funding_source 不得重複
+      if (seenSources[rule.funding_source]) {
+        var err = new Error('偵測到重複生效的補助來源規則：' + rule.funding_source);
+        err.code = 'FUNDING_RULE_OVERLAP';
+        throw err;
+      }
+      seenSources[rule.funding_source] = true;
+    });
   }
 
   /**
    * 針對單一 DailyMealLedger 逐餐計算補助分攤明細
+   * @param {Object} ledgerRow 每日餐費明細列
+   * @param {string} runId 計算執行 ID
+   * @param {number} version 計算版本
+   * @param {Array} issuesList 問題清單
+   * @param {Object} [options] 可選參數，支援 rulesOverride
    */
-  function calculateFundingForLedgerRow(ledgerRow, runId, version, issuesList) {
+  function calculateFundingForLedgerRow(ledgerRow, runId, version, issuesList, options) {
+    options = options || {};
     var dateStr = ledgerRow.date;
-    var grossYuan = parseFloat(ledgerRow.meal_price_snapshot);
-    var grossMinor = MoneyService.yuanToMinor(grossYuan);
+    var grossMinor = MoneyService.yuanToMinorStrict(ledgerRow.meal_price_snapshot, 'meal_price_snapshot');
 
     // 1. 取得該日期與該身分適用的補助規則
-    var rules = getApplicableFundingRules(ledgerRow.subsidy_category_id, dateStr);
-    
-    if (rules.length === 0) {
-      var err = new Error('找不到身分 ' + ledgerRow.subsidy_category_id + ' 於 ' + dateStr + ' 的補助規則設定。');
-      err.code = 'FUNDING_RULE_NOT_FOUND';
-      throw err;
+    var rules;
+
+    if (options && Array.isArray(options.rulesOverride)) {
+      if (!Config.getTestMode()) {
+        var overrideErr = new Error('rulesOverride 僅允許在自動測試模式使用');
+        overrideErr.code = 'TEST_OVERRIDE_NOT_ALLOWED';
+        throw overrideErr;
+      }
+      rules = options.rulesOverride;
+    } else {
+      rules = getApplicableFundingRules(ledgerRow.subsidy_category_id, dateStr);
     }
+
+    validateApplicableFundingRules(rules, ledgerRow.subsidy_category_id, dateStr);
 
     // 2. 依計算順序 (EXPLICIT_ORDER 或 MIXED_RULE_CALCULATION_ORDER) 排序規則
     var sortedRules = sortRules(rules);
 
     var allocations = [];
     var sumFixedMinor = 0;
-    var percentageBaseMode = Config.get('PERCENTAGE_BASE_MODE') || 'GROSS_AMOUNT';
+    var percentageBaseMode = Config.getSystemConfig('PERCENTAGE_BASE_MODE', 'GROSS_AMOUNT');
 
     // 3. 逐條規則計算 Raw Amount (分數或小數)
     sortedRules.forEach(function(rule) {
-      var bps = parseInt(rule.subsidy_rate, 10) || 0;
-      var fixedYuan = parseFloat(rule.subsidy_amount) || 0;
-      var fixedMinor = MoneyService.yuanToMinor(fixedYuan);
+      var bps = 0;
+      var fixedMinor = 0;
+
+      if (rule.calculation_type === 'percentage') {
+        var bpsVal = rule.subsidy_rate;
+        if (bpsVal === undefined || bpsVal === null || bpsVal === '') {
+          var err = new Error('🛑 補助比例 (subsidy_rate) 必填。');
+          err.code = 'SUBSIDY_RATE_MISSING';
+          throw err;
+        }
+        bps = Number(bpsVal);
+        if (!Number.isFinite(bps) || !Number.isInteger(bps)) {
+          var err = new Error('🛑 費率必須為安全整數，實際得到：' + bpsVal);
+          err.code = 'SUBSIDY_RATE_INVALID';
+          throw err;
+        }
+        SubsidyRuleService.validateRateBasisPoints(bps);
+        fixedMinor = 0;
+      } else if (rule.calculation_type === 'fixed_amount') {
+        var amtVal = rule.subsidy_amount;
+        if (amtVal === undefined || amtVal === null || amtVal === '') {
+          var err = new Error('🛑 固定補助金額 (subsidy_amount) 必填。');
+          err.code = 'SUBSIDY_AMOUNT_MISSING';
+          throw err;
+        }
+        fixedMinor = MoneyService.yuanToMinorStrict(amtVal, 'subsidy_amount');
+        bps = 0;
+      } else {
+        var err = new Error('🛑 未知的補助計算類型：' + rule.calculation_type);
+        err.code = 'CALCULATION_TYPE_INVALID';
+        throw err;
+      }
 
       var alloc = {
         allocation_id: 'ALC_' + ledgerRow.ledger_id.substring(7) + '_' + rule.funding_source + '_' + Math.floor(Math.random() * 100),
@@ -227,7 +317,7 @@ var FundingCalculationService = (function() {
 
       if (rule.calculation_type === 'fixed_amount') {
         if (fixedMinor > grossMinor) {
-          var err = new Error('固定補助金額 ' + fixedYuan + ' 超過當日餐費 ' + grossYuan);
+          var err = new Error('固定補助金額 ' + MoneyService.minorToYuan(fixedMinor) + ' 超過當日餐費 ' + MoneyService.minorToYuan(grossMinor));
           err.code = 'FUNDING_TOTAL_EXCEEDS_GROSS';
           throw err;
         }
@@ -252,7 +342,7 @@ var FundingCalculationService = (function() {
       }
 
       // 4. 進位計算 (DAILY_ROUND 逐餐進位，MONTHLY_ROUND 暫存 rounded 等待月結時調整)
-      var rounded = MoneyService.divideAndRound(alloc.raw_amount_numerator, alloc.raw_amount_denominator, Config.get('ROUNDING_MODE'));
+      var rounded = MoneyService.divideAndRound(alloc.raw_amount_numerator, alloc.raw_amount_denominator, Config.getSystemConfig('ROUNDING_MODE', 'HALF_UP'));
       alloc.rounded_amount_minor = rounded;
       alloc.final_amount_minor = rounded;
 
@@ -265,15 +355,15 @@ var FundingCalculationService = (function() {
     });
 
     // 5. 尾差處理 (以確保各來源分攤總額與餐費 minor 元件絕對相等)
-    var roundingRule = Config.get('ROUNDING_RULE') || 'DAILY_ROUND';
+    var roundingRule = Config.getSystemConfig('ROUNDING_RULE', 'DAILY_ROUND');
     if (roundingRule === 'DAILY_ROUND') {
       // 5A. 計算精度尾差調整
-      MoneyService.allocateResidual(grossMinor, allocations, Config.get('ROUNDING_RESIDUAL_POLICY'), Config.get('ROUNDING_RESIDUAL_SOURCE'));
+      MoneyService.allocateResidual(grossMinor, allocations, Config.getSystemConfig('ROUNDING_RESIDUAL_POLICY', 'SELF_PAY'), Config.getSystemConfig('ROUNDING_RESIDUAL_SOURCE', 'township'));
       allocations.forEach(function(a) { a.calculation_amount_minor = a.final_amount_minor; });
 
       // 5B. 結算精度尾差調整
       var totalSettlementMinor = MoneyService.convertCalculationToSettlement(grossMinor);
-      MoneyService.calculateSettlementResidual(totalSettlementMinor, allocations, Config.get('ROUNDING_RESIDUAL_POLICY'), Config.get('ROUNDING_RESIDUAL_SOURCE'));
+      MoneyService.calculateSettlementResidual(totalSettlementMinor, allocations, Config.getSystemConfig('ROUNDING_RESIDUAL_POLICY', 'SELF_PAY'), Config.getSystemConfig('ROUNDING_RESIDUAL_SOURCE', 'township'));
       
       // 寫入 warning issue (若有自付額且非 0，建立提示警告)
       var selfPayAlloc = allocations.filter(function(x) { return x.funding_source === 'self_pay'; })[0];
@@ -302,22 +392,11 @@ var FundingCalculationService = (function() {
              dateStr <= x.effective_end_date;
     });
 
-    // 驗證規則日期無重疊且無衝突
-    var seenSources = {};
-    rules.forEach(function(r) {
-      if (seenSources[r.funding_source]) {
-        var err = new Error('偵測到重複生效的補助來源規則：' + r.funding_source);
-        err.code = 'FUNDING_RULE_OVERLAP';
-        throw err;
-      }
-      seenSources[r.funding_source] = true;
-    });
-
     return rules;
   }
 
   function sortRules(rules) {
-    var mixedOrder = Config.get('MIXED_RULE_CALCULATION_ORDER') || 'PERCENTAGE_THEN_FIXED';
+    var mixedOrder = Config.getSystemConfig('MIXED_RULE_CALCULATION_ORDER', 'PERCENTAGE_THEN_FIXED');
     
     var list = JSON.parse(JSON.stringify(rules));
     
@@ -376,9 +455,9 @@ var FundingCalculationService = (function() {
       g.calculated_amount_minor += a.rounded_amount_minor;
       g.residual_adjustment_minor += a.residual_adjustment_minor;
       g.final_amount_minor += a.final_amount_minor;
-      g.calculation_total_minor += a.calculation_amount_minor || 0;
-      g.settlement_total_minor += a.settlement_amount_minor || 0;
-      g.settlement_residual_minor += a.settlement_residual_minor || 0;
+      g.calculation_total_minor += MoneyService.firstPresentValue(a, ['calculation_amount_minor'], 0);
+      g.settlement_total_minor += MoneyService.firstPresentValue(a, ['settlement_amount_minor'], 0);
+      g.settlement_residual_minor += MoneyService.firstPresentValue(a, ['settlement_residual_minor'], 0);
     });
 
     var result = [];
@@ -446,11 +525,11 @@ var FundingCalculationService = (function() {
                dietaryType === m.dietary_type;
       });
 
-      var townshipSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'township'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
-      var countySet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'county'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
-      var schoolSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'school'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
-      var selfPaySet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'self_pay'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
-      var otherSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'other'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
+      var townshipSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'township'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
+      var countySet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'county'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
+      var schoolSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'school'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
+      var selfPaySet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'self_pay'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
+      var otherSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'other'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
       
       var totalSetMinor = townshipSet + countySet + schoolSet + selfPaySet + otherSet;
 

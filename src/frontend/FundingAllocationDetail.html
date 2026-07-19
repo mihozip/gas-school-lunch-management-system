@@ -139,7 +139,8 @@
           });
         })
         .withFailureHandler(function(err) {
-          tbody.innerHTML = '<tr><td colspan="11" class="text-center text-danger">🛑 無存取權限或載入明細失敗: ' + err.message + '</td></tr>';
+          var msg = err.message || '未知錯誤';
+          tbody.innerHTML = '<tr><td colspan="11" class="text-center text-danger">🛑 無存取權限或載入明細失敗: ' + escapeHtml(msg) + '</td></tr>';
         })
         .apiListFundingAllocations(filters);
     }

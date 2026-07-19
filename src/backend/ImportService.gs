@@ -216,7 +216,7 @@ var ImportService = (function() {
         
         if (item.action_type === 'CREATE' || item.action_type === 'CREATE_HISTORY') {
           // 刪除建立的紀錄
-          SheetRepository.deleteRecord(targetSheet, pkName, recordId);
+          SheetRepository.deleteRecordById(targetSheet, pkName, recordId);
         } else if (item.action_type === 'UPDATE' || item.action_type === 'CLOSE_HISTORY') {
           // 還原為 before_data
           var originalRecord = JSON.parse(item.before_data);
@@ -267,7 +267,7 @@ var ImportService = (function() {
         var pkName = (targetSheet === 'Students') ? 'student_id' : 'history_id';
         
         if (item.action_type === 'CREATE' || item.action_type === 'CREATE_HISTORY') {
-          SheetRepository.deleteRecord(targetSheet, pkName, recordId);
+          SheetRepository.deleteRecordById(targetSheet, pkName, recordId);
         } else if (item.action_type === 'UPDATE' || item.action_type === 'CLOSE_HISTORY') {
           var originalRecord = JSON.parse(item.before_data);
           SheetRepository.upsertRecord(targetSheet, pkName, recordId, originalRecord);
@@ -374,7 +374,7 @@ var ImportService = (function() {
     prepareImportBatch(batchRecord);
 
     // B. 使用 ScriptLock 執行寫入
-    var lockResult = LockService.runWithLock(function() {
+    var lockResult = LockServiceHelper.runWithLock(function() {
       try {
         // 確保所有匯入項目不影響已月結鎖定月份
         for (var i = 0; i < validatedRows.length; i++) {

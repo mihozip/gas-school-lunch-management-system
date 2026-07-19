@@ -121,7 +121,7 @@
         .withFailureHandler(function(err) {
           showNotification('載入就緒檢驗失敗: ' + err.message, 'danger');
         })
-        .apiValidateClosing(ym);
+        .apiValidateMonthlyClosingReadiness(ym);
     }
 
     function addCheckItem(parent, success, label) {

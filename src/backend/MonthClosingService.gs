@@ -13,7 +13,7 @@ var MonthClosingService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 確保沒有正在進行的 active closed 月結
       var activeClosed = SheetRepository.findRecords('MonthClosings', function(x) {
         return x.year_month === yearMonth && x.status === 'closed' && x.is_current === true;
@@ -79,7 +79,7 @@ var MonthClosingService = (function() {
       });
 
       return record;
-    }).error;
+    });
   }
 
   /**
@@ -218,17 +218,17 @@ var MonthClosingService = (function() {
     var identity = AuthService.getCurrentIdentity();
     
     // 會計權限確認
-    if (AuthService.hasRole('accountant') && Config.get('ACCOUNTANT_CAN_VALIDATE_CLOSING') !== 'TRUE') {
+    if (identity.role === 'accountant' && Config.getSystemConfig('ACCOUNTANT_CAN_VALIDATE_CLOSING', 'FALSE') !== 'TRUE') {
       throw new Error('🛑 職務分離限制：會計/主計人員目前尚未經由設定授權執行驗證就緒。');
     }
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
       if (!closing) throw new Error('找不到該月結項目');
       if (closing.status !== 'draft') throw new Error('該月結項目不是草稿狀態，無法審定。');
 
       // 檢查職務分離
-      if (Config.get('REQUIRE_SEPARATE_CLOSING_VALIDATOR') === 'TRUE') {
+      if (Config.getSystemConfig('REQUIRE_SEPARATE_CLOSING_VALIDATOR', 'FALSE') === 'TRUE') {
         if (closing.prepared_by === identity.email) {
           throw new Error('🛑 職務分離治理限制：月結草稿建立者 (' + closing.prepared_by + ') 與就緒驗證審定者不得為同一人！');
         }
@@ -253,7 +253,7 @@ var MonthClosingService = (function() {
       });
 
       return closing;
-    }).error;
+    });
   }
 
   /**
@@ -283,7 +283,7 @@ var MonthClosingService = (function() {
       throw new Error('請輸入「確認月結鎖定」以完成安全複核。');
     }
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
       if (!closing) throw new Error('找不到該月結項目');
       if (closing.status !== 'validated' && closing.status !== 'draft') {
@@ -291,12 +291,12 @@ var MonthClosingService = (function() {
       }
 
       // 檢查職務分離：1. 驗證是否經過 validated
-      if (closing.status === 'draft' && Config.get('REQUIRE_SEPARATE_CLOSING_VALIDATOR') === 'TRUE') {
+      if (closing.status === 'draft' && Config.getSystemConfig('REQUIRE_SEPARATE_CLOSING_VALIDATOR', 'FALSE') === 'TRUE') {
         throw new Error('🛑 職務分離限制：本月份尚未經由獨立的驗證人審核 (狀態必須為 validated)！');
       }
 
       // 檢查職務分離：2. 驗證人與關帳者不能同一人
-      if (Config.get('REQUIRE_SEPARATE_CLOSING_CLOSER') === 'TRUE') {
+      if (Config.getSystemConfig('REQUIRE_SEPARATE_CLOSING_CLOSER', 'FALSE') === 'TRUE') {
         if (closing.validated_by === identity.email) {
           throw new Error('🛑 職務分離治理限制：就緒驗證審定者 (' + closing.validated_by + ') 與正式執行關帳閉簽者不得為同一人！');
         }
@@ -350,7 +350,7 @@ var MonthClosingService = (function() {
         closingId: closing.closing_id,
         archiveFolderId: archiveFolderId
       };
-    }).error;
+    });
   }
 
   /**
@@ -365,7 +365,7 @@ var MonthClosingService = (function() {
       throw new Error('🛑 解鎖錯誤：必須填寫解鎖原因事由！');
     }
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var closing = SheetRepository.findById('MonthClosings', 'closing_id', closingId);
       if (!closing) throw new Error('找不到該月結項目');
       if (closing.status !== 'closed') throw new Error('該月結項目狀態不為 closed，無法解除。');
@@ -416,7 +416,7 @@ var MonthClosingService = (function() {
       });
 
       return closing;
-    }).error;
+    });
   }
 
   function getLatestClosingId(yearMonth) {
@@ -473,8 +473,8 @@ var MonthClosingService = (function() {
     }
 
     try {
-      var schoolYear = Config.get('SCHOOL_YEAR') || '115';
-      var semester = Config.get('SEMESTER') || '1';
+      var schoolYear = Config.getSystemConfig('SCHOOL_YEAR', '115');
+      var semester = Config.getSystemConfig('SEMESTER', '1');
 
       var parentFolder = DriveApp.getFolderById(rootFolderId);
       
@@ -564,8 +564,8 @@ var MonthClosingService = (function() {
 
       // 6. 產生 Manifest JSON 檔
       var manifest = {
-        school_name: Config.get('SCHOOL_NAME') || '實機實驗學校',
-        school_code: Config.get('SCHOOL_CODE') || 'SCH001',
+        school_name: Config.getSystemConfig('SCHOOL_NAME', '實機實驗學校'),
+        school_code: Config.getSystemConfig('SCHOOL_CODE', 'SCH001'),
         school_year: schoolYear,
         semester: semester,
         year_month: yearMonth,

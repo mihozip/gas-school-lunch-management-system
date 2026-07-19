@@ -52,7 +52,7 @@ var SchoolDaysService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var ssId = Config.getSpreadsheetId();
       var sheet = SpreadsheetApp.openById(ssId).getSheetByName('SchoolDays');
       var values = sheet.getDataRange().getValues();
@@ -108,7 +108,7 @@ var SchoolDaysService = (function() {
 
       Config.clearAllCache();
       return afterData;
-    }).error;
+    });
   }
 
   /**
@@ -142,7 +142,7 @@ var SchoolDaysService = (function() {
     var createdCount = 0;
     var skippedCount = 0;
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 確保期間未鎖定
       PeriodLockService.assertRangeWritable(startDate, endDate);
       var current = new Date(start.getTime());
@@ -189,7 +189,7 @@ var SchoolDaysService = (function() {
       });
 
       return { created: createdCount, skipped: skippedCount };
-    }).error || { created: createdCount, skipped: skippedCount };
+    });
   }
 
   /**
@@ -200,7 +200,7 @@ var SchoolDaysService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 確保期間未鎖定
       PeriodLockService.assertDateWritable(dateStr);
       // 確保唯一性
@@ -239,7 +239,7 @@ var SchoolDaysService = (function() {
       });
 
       return updated;
-    }).error;
+    });
   }
 
   /**
@@ -256,7 +256,7 @@ var SchoolDaysService = (function() {
     var summary = { create: 0, update: 0, skip: 0, conflict: 0 };
     var batchSeen = {};
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 確保所有匯入日期皆可寫入 (未鎖定)
       rows.forEach(function(row) {
         if (row.date) PeriodLockService.assertDateWritable(row.date);
@@ -333,7 +333,7 @@ var SchoolDaysService = (function() {
 
       Config.clearAllCache();
       return summary;
-    }).error || summary;
+    });
   }
 
   /**

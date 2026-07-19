@@ -13,7 +13,7 @@ var MonthlyReconciliationService = (function() {
     var identity = AuthService.getCurrentIdentity();
     var currentDateTime = Utils.formatDateTime(new Date());
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 1. 取得完整度資訊
       var completeness = validateMonthCompleteness(yearMonth);
       
@@ -95,7 +95,7 @@ var MonthlyReconciliationService = (function() {
         summaries: finalSummaries
       };
 
-    }).error;
+    });
   }
 
   /**

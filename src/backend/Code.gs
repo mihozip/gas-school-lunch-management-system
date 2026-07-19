@@ -99,6 +99,57 @@ function apiGetSystemStatus() {
 }
 
 /**
+ * 獲取每日點餐登記的系統配置
+ */
+function apiGetMealEntryConfig() {
+  try {
+    var rawDeadline = Config.getSystemConfig('DAILY_CONFIRM_DEADLINE', '09:00');
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(rawDeadline)) {
+      var err = new Error('🛑 系統設定錯誤：登記截止時間格式不正確，應為 HH:mm 格式。');
+      err.code = 'CONFIG_INVALID_DEADLINE';
+      throw err;
+    }
+
+    var rawDaysVal = Config.getSystemConfig('RETROACTIVE_EDIT_DAYS', '0');
+    var rawDays = Number(rawDaysVal);
+    if (!Number.isFinite(rawDays) || !Number.isInteger(rawDays) || rawDays < 0) {
+      var err = new Error('🛑 系統設定錯誤：補登限制天數必須為非負整數。');
+      err.code = 'CONFIG_INVALID_RETROACTIVE_DAYS';
+      throw err;
+    }
+
+    var rawRetroactiveEdit = Config.getSystemConfig('ALLOW_RETROACTIVE_EDIT', 'FALSE');
+    if (rawRetroactiveEdit !== true && rawRetroactiveEdit !== false && 
+        rawRetroactiveEdit !== 'TRUE' && rawRetroactiveEdit !== 'FALSE') {
+      var err = new Error('🛑 系統設定錯誤：ALLOW_RETROACTIVE_EDIT 必須為 Boolean 值。');
+      err.code = 'CONFIG_INVALID_BOOLEAN';
+      throw err;
+    }
+    var allowRetroactiveEdit = (rawRetroactiveEdit === true || rawRetroactiveEdit === 'TRUE');
+
+    var rawAdminOverride = Config.getSystemConfig('ALLOW_SAME_DAY_ADMIN_OVERRIDE', 'FALSE');
+    if (rawAdminOverride !== true && rawAdminOverride !== false && 
+        rawAdminOverride !== 'TRUE' && rawAdminOverride !== 'FALSE') {
+      var err = new Error('🛑 系統設定錯誤：ALLOW_SAME_DAY_ADMIN_OVERRIDE 必須為 Boolean 值。');
+      err.code = 'CONFIG_INVALID_BOOLEAN';
+      throw err;
+    }
+    var allowSameDayAdminOverride = (rawAdminOverride === true || rawAdminOverride === 'TRUE');
+
+    var data = {
+      deadline: rawDeadline,
+      allowRetroactiveEdit: allowRetroactiveEdit,
+      retroactiveEditDays: rawDays,
+      allowSameDayAdminOverride: allowSameDayAdminOverride
+    };
+
+    return Utils.createResponse(true, data);
+  } catch (e) {
+    return Utils.createResponse(false, null, e.code || 'CONFIG_ERROR', '無法獲取點餐登記系統配置', e.message);
+  }
+}
+
+/**
  * 獲取登入診斷資訊 (提供給 AuthDiagnostic 元件)
  */
 function apiGetAuthorizationDiagnostic() {
@@ -722,7 +773,7 @@ function apiGetCurrentClosing(yearMonth) {
   }
 }
 
-function apiValidateClosing(yearMonth) {
+function apiValidateMonthlyClosingReadiness(yearMonth) {
   try {
     var readiness = MonthClosingService.validateClosingReadiness(yearMonth);
     
@@ -745,8 +796,8 @@ function apiValidateClosing(yearMonth) {
     sources.forEach(function(src) {
       var filtered = list.filter(function(x) { return x.funding_source === src.source; });
       src.meals = filtered.reduce(function(acc, x) { return acc + (parseInt(x.meal_count, 10) || 0); }, 0);
-      src.amount = filtered.reduce(function(acc, x) { return acc + ((parseInt(x.final_amount_minor, 10) || 0) / 100); }, 0);
-      src.residual = filtered.reduce(function(acc, x) { return acc + ((parseInt(x.residual_adjustment_minor, 10) || 0) / 100); }, 0);
+      src.amount = filtered.reduce(function(acc, x) { return acc + MoneyService.minorToYuan(MoneyService.parseMinorStrict(MoneyService.firstPresentValue(x, ['final_amount_minor']), 'final_amount_minor')); }, 0);
+      src.residual = filtered.reduce(function(acc, x) { return acc + MoneyService.minorToYuan(MoneyService.parseMinorStrict(MoneyService.firstPresentValue(x, ['residual_adjustment_minor'], 0), 'residual_adjustment_minor', { allowNegative: true })); }, 0);
       if (src.source === 'township' || src.source === 'county') mealsCount = Math.max(mealsCount, src.meals);
     });
 
@@ -807,7 +858,7 @@ function apiGetClosingManifest(closingId) {
   }
 }
 
-function apiValidateClosing(closingId) {
+function apiValidateClosingRecord(closingId) {
   try {
     var result = MonthClosingService.validateClosing(closingId);
     return Utils.createResponse(true, result);
@@ -990,22 +1041,6 @@ function apiGetTriggerStatus() {
   }
 }
 
-function apiInstallDailyCalculationTrigger() {
-  try {
-    var result = TriggerService.installDailyCalculationTrigger();
-    return Utils.createResponse(true, result);
-  } catch (e) {
-    return Utils.createResponse(false, null, 'TRIGGER_ERROR', '啟用定時排程失敗', e.message);
-  }
-}
 
-function apiRemoveDailyCalculationTrigger() {
-  try {
-    var result = TriggerService.removeDailyCalculationTrigger();
-    return Utils.createResponse(true, result);
-  } catch (e) {
-    return Utils.createResponse(false, null, 'TRIGGER_ERROR', '停用定時排程失敗', e.message);
-  }
-}
 
 

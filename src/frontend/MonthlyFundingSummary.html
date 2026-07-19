@@ -95,7 +95,8 @@
           });
         })
         .withFailureHandler(function(err) {
-          tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger">載入彙總失敗: ' + err.message + '</td></tr>';
+          var msg = err.message || '未知錯誤';
+          tbody.innerHTML = '<tr><td colspan="10" class="text-center text-danger">載入彙總失敗: ' + escapeHtml(msg) + '</td></tr>';
         })
         .apiGetMonthlyFundingSummary(ym);
     }

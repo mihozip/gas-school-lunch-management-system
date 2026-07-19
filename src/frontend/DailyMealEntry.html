@@ -88,7 +88,9 @@ var EntryCache = {
   dateStr: '',
   roster: [],
   isLocked: false,
-  isMealDay: true
+  isMealDay: true,
+  config: null,
+  configLoaded: false
 };
 
 /**
@@ -98,7 +100,28 @@ function initDailyMealEntryView() {
   // 設定預設日期為今天
   document.getElementById('entryDate').value = Utils.formatDate(new Date());
   
-  // 載入班級選單
+  showLoading('系統設定載入中...');
+  EntryCache.config = null;
+  EntryCache.configLoaded = false;
+  
+  callServer('apiGetMealEntryConfig')
+    .then(function(config) {
+      EntryCache.config = config;
+      EntryCache.configLoaded = true;
+      hideLoading();
+      
+      // 載入班級選單與名冊
+      loadClassSelectAndRoster();
+    })
+    .catch(function(err) {
+      hideLoading();
+      showToast('載入系統設定失敗: ' + err.message, 'error');
+      var msg = err.message || '未知錯誤';
+      document.getElementById('entryTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--status-blocking); font-weight:bold;">系統設定載入失敗：' + escapeHtml(msg) + '，請重新整理頁面。</td></tr>';
+    });
+}
+
+function loadClassSelectAndRoster() {
   var userRole = App.user.role;
   var userClassId = App.user.class_id;
 
@@ -152,7 +175,7 @@ function loadDailyMealEntry() {
       EntryCache.isMealDay = (res.schoolDay.is_meal_day === true || res.schoolDay.is_meal_day === 'TRUE');
       
       // 更新截止時間
-      var deadline = Config.get('DAILY_CONFIRM_DEADLINE') || '09:00';
+      var deadline = EntryCache.config ? EntryCache.config.deadline : '09:00';
       document.getElementById('entryDeadlineText').innerText = deadline;
 
       var status = res.confirmation.confirm_status || 'not_started';
@@ -165,23 +188,27 @@ function loadDailyMealEntry() {
       document.getElementById('entryStatusBadge').innerHTML = badgeHtml;
 
       // 檢查是否鎖定不可修改
-      // 1. 月結鎖定 2. confirmed (導師不可修改，除非管理員重開)
       var isLocked = (status === 'locked' || (status === 'confirmed' && App.user.role === 'class_teacher'));
       EntryCache.isLocked = isLocked;
 
       // 如果逾時，且非管理員補登，則設定唯讀
       var todayStr = Utils.formatDate(new Date());
       var isExpired = false;
+      var isAdmin = (App.user.role === 'system_admin' || App.user.role === 'lunch_admin');
+      
       if (dateStr === todayStr) {
         var now = new Date();
         var nowTime = Utils.padZero(now.getHours()) + ':' + Utils.padZero(now.getMinutes());
-        if (nowTime > deadline && App.user.role === 'class_teacher') {
-          isExpired = true;
+        if (nowTime > deadline) {
+          if (isAdmin && EntryCache.config && EntryCache.config.allowSameDayAdminOverride) {
+            // 管理員逾時允許修改
+          } else if (App.user.role === 'class_teacher') {
+            isExpired = true;
+          }
         }
       } else if (dateStr < todayStr && App.user.role === 'class_teacher') {
-        // 歷史日期非管理員
-        var allowRetroactive = Config.get('ALLOW_RETROACTIVE_EDIT') === 'TRUE';
-        var retroactiveDays = parseInt(Config.get('RETROACTIVE_EDIT_DAYS') || '0', 10);
+        var allowRetroactive = EntryCache.config ? EntryCache.config.allowRetroactiveEdit : false;
+        var retroactiveDays = EntryCache.config ? EntryCache.config.retroactiveEditDays : 0;
         var dateDiff = Math.floor((new Date(todayStr).getTime() - new Date(dateStr).getTime()) / 86400000);
         if (!allowRetroactive || dateDiff > retroactiveDays) {
           isExpired = true;
@@ -205,7 +232,8 @@ function loadDailyMealEntry() {
     .catch(function(err) {
       hideLoading();
       showToast(err.message, 'error');
-      document.getElementById('entryTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--status-blocking); font-weight:bold;">' + err.message + '</td></tr>';
+      var msg = err.message || '未知錯誤';
+      document.getElementById('entryTableBody').innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--status-blocking); font-weight:bold;">' + escapeHtml(msg) + '</td></tr>';
     });
 }
 
@@ -468,6 +496,10 @@ function collectExceptions() {
  * 暫存草稿
  */
 function saveEntryDraft() {
+  if (!EntryCache.configLoaded || !EntryCache.config) {
+    showToast('系統設定尚未載入完成，無法儲存草稿。', 'warning');
+    return;
+  }
   showLoading('正在暫存草稿...');
   var entries = collectExceptions();
 
@@ -487,6 +519,10 @@ function saveEntryDraft() {
  * 送出登記確認
  */
 function submitEntryConfirm() {
+  if (!EntryCache.configLoaded || !EntryCache.config) {
+    showToast('系統設定尚未載入完成，無法送出確認。', 'warning');
+    return;
+  }
   if (!confirm('您確定已核對過本日請假名單並要送出確認嗎？確認後導師帳號將無法直接修改，如需修改須經由午餐管理員退回。')) return;
 
   showLoading('正在送出登記確認...');

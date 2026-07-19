@@ -336,6 +336,85 @@ var SheetRepository = (function() {
     });
   }
 
+  /**
+   * 安全地刪除資料記錄 (測試環境執行硬刪除，正式環境自動改為軟刪除)
+   * @param {string} sheetName 工作表名稱
+   * @param {string} pkName 主鍵欄位名稱
+   * @param {any} id 主鍵值
+   */
+  function deleteRecordById(sheetName, pkName, id) {
+    var isTestMode = false;
+    try {
+      var env = Config.getSystemConfig('ENVIRONMENT');
+      var testId = PropertiesService.getScriptProperties().getProperty('TEST_SPREADSHEET_ID');
+      isTestMode = (env === 'TEST' || (testId && Config.getSpreadsheetId() === testId));
+    } catch (e) {
+      isTestMode = false;
+    }
+
+    if (isTestMode) {
+      // 僅在測試環境進行硬刪除
+      return LockServiceHelper.runWithLock(function() {
+        var sheet = getSheet(sheetName);
+        var headers = getHeaders(sheetName);
+        var pkIdx = headers.indexOf(pkName);
+        if (pkIdx === -1) throw new Error('找不到欄位：' + pkName);
+
+        var data = sheet.getDataRange().getValues();
+        for (var i = 1; i < data.length; i++) {
+          if (String(data[i][pkIdx]) === String(id)) {
+            sheet.deleteRow(i + 1);
+            break;
+          }
+        }
+      });
+    } else {
+      // 正式與 UAT 環境：安全檢驗與自動進行軟刪除 (將 enabled 設為 false，並寫入刪除資訊)
+      AuthService.requireAnyRole(['system_admin', 'lunch_admin']);
+      
+      return LockServiceHelper.runWithLock(function() {
+        var record = findById(sheetName, pkName, id);
+        if (!record) return;
+
+        var headers = getHeaders(sheetName);
+        
+        // 檢查 PeriodLock
+        if (headers.indexOf('date') !== -1 && record.date) {
+          PeriodLockService.assertDateWritable(record.date);
+        }
+        if (headers.indexOf('effective_start_date') !== -1 && record.effective_start_date) {
+          PeriodLockService.assertRuleWritable(record.effective_start_date, record.effective_end_date);
+        }
+
+        record.enabled = false;
+        
+        var identity = AuthService.getCurrentIdentity();
+        var currentDateTime = Utils.formatDateTime(new Date());
+
+        if (headers.indexOf('status') !== -1) {
+          record.status = 'deleted';
+        }
+        if (headers.indexOf('deleted_by') !== -1) {
+          record.deleted_by = identity ? identity.email : 'system';
+        }
+        if (headers.indexOf('deleted_at') !== -1) {
+          record.deleted_at = currentDateTime;
+        }
+        if (headers.indexOf('deletion_reason') !== -1) {
+          record.deletion_reason = '系統執行刪除/還原動作';
+        }
+        if (headers.indexOf('updated_by') !== -1) {
+          record.updated_by = identity ? identity.email : 'system';
+        }
+        if (headers.indexOf('updated_at') !== -1) {
+          record.updated_at = currentDateTime;
+        }
+
+        upsertRecord(sheetName, pkName, id, record);
+      });
+    }
+  }
+
   return {
     getSpreadsheet: getSpreadsheet,
     getSheet: getSheet,
@@ -349,6 +428,7 @@ var SheetRepository = (function() {
     appendRecord: appendRecord,
     updateRecordById: updateRecordById,
     upsertRecord: upsertRecord,
-    batchWrite: batchWrite
+    batchWrite: batchWrite,
+    deleteRecordById: deleteRecordById
   };
 })();

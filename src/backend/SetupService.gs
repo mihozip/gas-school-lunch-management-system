@@ -264,7 +264,8 @@ var SetupService = (function() {
       'REPORT_TEMPLATE_TOWNSHIP_ID': { val: '', desc: '公所補助申請書模板 ID' },
       'REPORT_TEMPLATE_COUNTY_ID': { val: '', desc: '縣府補助申請書模板 ID' },
       'STUDENT_UNIQUE_KEY_MODE': { val: 'SCHOOL_YEAR_AND_STUDENT_NUMBER', desc: '學生唯一性判定模式 (SCHOOL_YEAR_AND_STUDENT_NUMBER 或 STUDENT_NUMBER_ONLY 或 CUSTOM_EXTERNAL_ID)' },
-      'ENVIRONMENT': { val: 'DEVELOPMENT', desc: '系統執行環境 (DEVELOPMENT, TEST, PRODUCTION)' },
+      'ENVIRONMENT': { val: 'UAT', desc: '系統執行環境 (UAT, PRODUCTION)' },
+      'RATE_STORAGE_FORMAT': { val: 'BASIS_POINTS', desc: '補助率儲存格式 (BASIS_POINTS)' },
       'TEST_SPREADSHEET_ID': { val: '', desc: '自動測試專用之 Google 試算表 ID' }
     };
 
@@ -317,14 +318,14 @@ var SetupService = (function() {
     // 4. 建立預設 SubsidyRules (草稿狀態，預設為 disabled = FALSE)
     var defaultRules = [
       // 一般生公所 50%
-      { catId: 'GENERAL', source: 'township', rate: 0.5, type: 'percentage', note: '一般學生公所補助 50%' },
+      { catId: 'GENERAL', source: 'township', rate: 5000, type: 'percentage', note: '一般學生公所補助 50%' },
       // 一般生縣府 50%
-      { catId: 'GENERAL', source: 'county', rate: 0.5, type: 'percentage', note: '一般學生縣府補助 50%' },
+      { catId: 'GENERAL', source: 'county', rate: 5000, type: 'percentage', note: '一般學生縣府補助 50%' },
       // 特殊身分縣府 100%
-      { catId: 'LOW_INCOME', source: 'county', rate: 1.0, type: 'percentage', note: '低收入戶縣府全額補助 100%' },
-      { catId: 'MIDDLE_LOW_INCOME', source: 'county', rate: 1.0, type: 'percentage', note: '中低收入戶縣府全額補助 100%' },
-      { catId: 'DISABILITY', source: 'county', rate: 1.0, type: 'percentage', note: '身心障礙學生縣府全額補助 100%' },
-      { catId: 'INDIGENOUS', source: 'county', rate: 1.0, type: 'percentage', note: '原住民學生縣府全額補助 100%' }
+      { catId: 'LOW_INCOME', source: 'county', rate: 10000, type: 'percentage', note: '低收入戶縣府全額補助 100%' },
+      { catId: 'MIDDLE_LOW_INCOME', source: 'county', rate: 10000, type: 'percentage', note: '中低收入戶縣府全額補助 100%' },
+      { catId: 'DISABILITY', source: 'county', rate: 10000, type: 'percentage', note: '身心障礙學生縣府全額補助 100%' },
+      { catId: 'INDIGENOUS', source: 'county', rate: 10000, type: 'percentage', note: '原住民學生縣府全額補助 100%' }
     ];
 
     var existingRules = SheetRepository.getAllRecords('SubsidyRules');
@@ -396,71 +397,7 @@ var SetupService = (function() {
     return report;
   }
 
-  function bootstrapSystem(settings) {
-    var email = AuthService.getActiveUserEmail();
-    if (!email) {
-      throw new Error('無法取得當前使用者 Email。請確保已通過 OAuth 授權。');
-    }
-    
-    // 1. 自動建立生產 Database Spreadsheet
-    var dbSs = SpreadsheetApp.create('學校午餐管理資料庫-[PROD]');
-    var dbId = dbSs.getId();
-    
-    // 2. 自動建立測試 Database Spreadsheet
-    var testSs = SpreadsheetApp.create('學校午餐測試沙盒-[TEST]');
-    var testId = testSs.getId();
-    
-    // 3. 自動建立 Drive 報表根目錄資料夾
-    var rootFolder = DriveApp.createFolder('學校午餐管理根目錄-[PROD]');
-    var rootFolderId = rootFolder.getId();
-    
-    // 4. 自動建立測試報告與對帳存檔子目錄
-    var testFolder = rootFolder.createFolder('測試報告與對帳封存-[TEST]');
-    var testFolderId = testFolder.getId();
-    
-    // 5. 解析網域 (Allowed Domain)
-    var allowedDomain = '';
-    var parts = email.split('@');
-    if (parts.length >= 2) {
-      allowedDomain = parts[1];
-    }
-    
-    // 6. 設定 Script Properties
-    var props = PropertiesService.getScriptProperties();
-    props.setProperties({
-      'ENVIRONMENT': 'DEVELOPMENT',
-      'DEPLOYMENT_MODE': 'UAT',
-      'DATABASE_SPREADSHEET_ID': dbId,
-      'TEST_SPREADSHEET_ID': testId,
-      'REPORT_ROOT_FOLDER_ID': rootFolderId,
-      'TEST_REPORT_FOLDER_ID': testFolderId,
-      'ALLOWED_DOMAIN': allowedDomain,
-      'BOOTSTRAP_ADMIN_EMAIL': email,
-      'CALCULATION_SCALE': '2',
-      'SETTLEMENT_SCALE': '0',
-      'CURRENCY_CODE': 'TWD',
-      'TIMEZONE': 'Asia/Taipei'
-    });
-    
-    // 7. 將試算表時區設為 Asia/Taipei
-    dbSs.setSpreadsheetTimeZone('Asia/Taipei');
-    testSs.setSpreadsheetTimeZone('Asia/Taipei');
-    
-    // 8. 建立 29 張工作表於兩個 Spreadsheet (PROD 與 TEST)
-    var prodReport = initializeDatabaseForSs(dbSs, settings);
-    var testReport = initializeDatabaseForSs(testSs, settings);
-    
-    return {
-      success: true,
-      dbId: dbId,
-      testId: testId,
-      rootFolderId: rootFolderId,
-      testFolderId: testFolderId,
-      allowedDomain: allowedDomain,
-      prodReport: prodReport,
-      testReport: testReport
-    };
-  }
+
 
   function initializeDatabaseForSs(ss, settings) {
     var createdSheets = [];
@@ -506,88 +443,113 @@ var SetupService = (function() {
       'INCLUDED_CLASS_TYPES': 'regular,kindergarten,staff',
       'REOPEN_CONFIRM_ROLE': 'system_admin,lunch_admin',
       'SCHEMA_VERSION': CURRENT_SCHEMA_VERSION,
-      'SUBSIDY_RATE_LEGACY_FORMAT': 'PERCENT_0_TO_100',
-      'ENVIRONMENT': 'DEVELOPMENT'
+      'RATE_STORAGE_FORMAT': 'BASIS_POINTS',
+      'ENVIRONMENT': settings.environment || 'UAT'
     };
 
     var configSheet = ss.getSheetByName('SystemConfig');
     if (configSheet) {
-      var lastRow = configSheet.getLastRow();
-      if (lastRow > 1) {
-        configSheet.getRange(2, 1, lastRow - 1, 5).clearContent();
-      }
-      var rows = [];
+      var rows = configSheet.getDataRange().getValues();
+      var existingKeys = rows.slice(1).map(function(r) { return r[0]; });
+      var newRows = [];
       for (var key in configs) {
-        rows.push([
-          key,
-          configs[key],
-          '初始化預設參數',
-          Utils.formatDateTime(new Date()),
-          settings.adminEmail
-        ]);
+        if (existingKeys.indexOf(key) === -1) {
+          newRows.push([
+            key,
+            configs[key],
+            '初始化預設參數',
+            Utils.formatDateTime(new Date()),
+            settings.adminEmail
+          ]);
+        }
       }
-      configSheet.getRange(2, 1, rows.length, 5).setValues(rows);
+      if (newRows.length > 0) {
+        configSheet.getRange(configSheet.getLastRow() + 1, 1, newRows.length, 5).setValues(newRows);
+      }
     }
     
     // 寫入最高管理員使用者
     var userSheet = ss.getSheetByName('Users');
     if (userSheet) {
-      var lastRow = userSheet.getLastRow();
-      if (lastRow > 1) {
-        userSheet.getRange(2, 1, lastRow - 1, 8).clearContent();
+      var rows = userSheet.getDataRange().getValues();
+      var existingEmails = rows.slice(1).map(function(r) { return String(r[1]).trim().toLowerCase(); });
+      var targetEmail = settings.adminEmail ? String(settings.adminEmail).trim().toLowerCase() : '';
+      if (targetEmail && existingEmails.indexOf(targetEmail) === -1) {
+        userSheet.getRange(userSheet.getLastRow() + 1, 1, 1, 8).setValues([[
+          'USER_ADMIN_BOOT',
+          settings.adminEmail,
+          settings.adminName || '系統管理員',
+          'system_admin',
+          '',
+          true, // enabled
+          Utils.formatDateTime(new Date()),
+          Utils.formatDateTime(new Date())
+        ]]);
       }
-      userSheet.getRange(2, 1, 1, 8).setValues([[
-        'USER_ADMIN_BOOT',
-        settings.adminEmail,
-        settings.adminName || '系統管理員',
-        'system_admin',
-        '',
-        true, // enabled
-        Utils.formatDateTime(new Date()),
-        Utils.formatDateTime(new Date())
-      ]]);
     }
 
     // 寫入預設 Approved 補助身分與規則
     var catSheet = ss.getSheetByName('SubsidyCategories');
     if (catSheet) {
-      var lastRow = catSheet.getLastRow();
-      if (lastRow > 1) {
-        catSheet.getRange(2, 1, lastRow - 1, 6).clearContent();
-      }
-      catSheet.getRange(2, 1, 2, 6).setValues([
+      var rows = catSheet.getDataRange().getValues();
+      var existingCatIds = rows.slice(1).map(function(r) { return r[0]; });
+      var newCats = [];
+      var defaultCats = [
         ['GENERAL', '一般學生', '預設一般用餐學生', true, true, 1],
         ['LOW_INCOME', '低收入戶', '政府全額補助對象', false, true, 2]
-      ]);
+      ];
+      defaultCats.forEach(function(cat) {
+        if (existingCatIds.indexOf(cat[0]) === -1) {
+          newCats.push(cat);
+        }
+      });
+      if (newCats.length > 0) {
+        catSheet.getRange(catSheet.getLastRow() + 1, 1, newCats.length, 6).setValues(newCats);
+      }
     }
 
     var ruleSheet = ss.getSheetByName('SubsidyRules');
     if (ruleSheet) {
-      var lastRow = ruleSheet.getLastRow();
-      if (lastRow > 1) {
-        ruleSheet.getRange(2, 1, lastRow - 1, 10).clearContent();
+      var rows = ruleSheet.getDataRange().getValues();
+      var existingRuleIds = rows.slice(1).map(function(r) { return r[0]; });
+      var newRules = [];
+      var defaultRules = [
+        ['RULE_GEN_TOWN', 'GENERAL', 'township', '5000', '0.00', 'percentage', '2026-01-01', '2099-12-31', false, '公所分攤50%'],
+        ['RULE_GEN_COUNTY', 'GENERAL', 'county', '5000', '0.00', 'percentage', '2026-01-01', '2099-12-31', false, '縣府分攤50%'],
+        ['RULE_LOW_INC', 'LOW_INCOME', 'county', '10000', '0.00', 'percentage', '2026-01-01', '2099-12-31', false, '縣府全額補助低收']
+      ];
+      defaultRules.forEach(function(rule) {
+        if (existingRuleIds.indexOf(rule[0]) === -1) {
+          newRules.push(rule);
+        }
+      });
+      if (newRules.length > 0) {
+        ruleSheet.getRange(ruleSheet.getLastRow() + 1, 1, newRules.length, 10).setValues(newRules);
       }
-      ruleSheet.getRange(2, 1, 3, 10).setValues([
-        ['RULE_GEN_TOWN', 'GENERAL', 'township', '0.50', '0.00', 'percentage', '2026-01-01', '2099-12-31', true, '公所分攤50%'],
-        ['RULE_GEN_COUNTY', 'GENERAL', 'county', '0.50', '0.00', 'percentage', '2026-01-01', '2099-12-31', true, '縣府分攤50%'],
-        ['RULE_LOW_INC', 'LOW_INCOME', 'county', '1.00', '0.00', 'percentage', '2026-01-01', '2099-12-31', true, '縣府全額補助低收']
-      ]);
     }
 
     // 寫入預設報表範本 ReportTemplates
     var tplSheet = ss.getSheetByName('ReportTemplates');
     if (tplSheet) {
-      var lastRow = tplSheet.getLastRow();
-      if (lastRow > 1) {
-        tplSheet.getRange(2, 1, lastRow - 1, 20).clearContent();
+      var rows = tplSheet.getDataRange().getValues();
+      var existingTplIds = rows.slice(1).map(function(r) { return r[0]; });
+      var newTpls = [];
+      var defaultTpls = [
+        ['TMP_TOWNSHIP_V1', 'TOWNSHIP_FUNDING_APPLICATION', '通用版公所補助申請表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'draft', settings.adminEmail, Utils.formatDateTime(new Date()), '', '', '', '預設公所範本', 'INTERNAL_STUDENT_DETAIL'],
+        ['TMP_COUNTY_V1', 'COUNTY_FUNDING_APPLICATION', '通用版縣府補助申請表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'draft', settings.adminEmail, Utils.formatDateTime(new Date()), '', '', '', '預設縣府範本', 'INTERNAL_STUDENT_DETAIL'],
+        ['TMP_MEAL_SUM_V1', 'MONTHLY_MEAL_SUMMARY', '通用版每月餐數統計表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'draft', settings.adminEmail, Utils.formatDateTime(new Date()), '', '', '', '預設月餐統計範本', 'PUBLIC_SUMMARY']
+      ];
+      defaultTpls.forEach(function(tpl) {
+        if (existingTplIds.indexOf(tpl[0]) === -1) {
+          newTpls.push(tpl);
+        }
+      });
+      if (newTpls.length > 0) {
+        tplSheet.getRange(tplSheet.getLastRow() + 1, 1, newTpls.length, 20).setValues(newTpls);
       }
-      tplSheet.getRange(2, 1, 3, 20).setValues([
-        ['TMP_TOWNSHIP_V1', 'TOWNSHIP_FUNDING_APPLICATION', '通用版公所補助申請表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'approved', settings.adminEmail, Utils.formatDateTime(new Date()), settings.adminEmail, Utils.formatDateTime(new Date()), '', '預設公所範本', 'INTERNAL_STUDENT_DETAIL'],
-        ['TMP_COUNTY_V1', 'COUNTY_FUNDING_APPLICATION', '通用版縣府補助申請表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'approved', settings.adminEmail, Utils.formatDateTime(new Date()), settings.adminEmail, Utils.formatDateTime(new Date()), '', '預設縣府範本', 'INTERNAL_STUDENT_DETAIL'],
-        ['TMP_MEAL_SUM_V1', 'MONTHLY_MEAL_SUMMARY', '通用版每月餐數統計表', '1', 'HTML', 'HTML_BUILTIN', '', '{}', '{}', '2026-01-01', '2099-12-31', true, 'approved', settings.adminEmail, Utils.formatDateTime(new Date()), settings.adminEmail, Utils.formatDateTime(new Date()), '', '預設月餐統計範本', 'PUBLIC_SUMMARY']
-      ]);
     }
 
+    Config.clearAllCache();
     return {
       createdSheets: createdSheets,
       skippedSheets: skippedSheets
@@ -597,6 +559,6 @@ var SetupService = (function() {
   return {
     getSystemStatus: getSystemStatus,
     runInitializeWizard: runInitializeWizard,
-    bootstrapSystem: bootstrapSystem
+    initializeDatabaseForSs: initializeDatabaseForSs
   };
 })();

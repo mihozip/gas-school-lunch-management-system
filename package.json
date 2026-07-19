@@ -8,6 +8,7 @@
     "deploy:uat": "bash deploy.sh --env uat",
     "deploy:production": "bash deploy.sh --env production",
     "deploy:dry-run": "bash deploy.sh --dry-run",
+    "check:static": "node tools/static-check.mjs",
     "status": "clasp show-file-status",
     "open": "clasp open-script",
     "deployments": "clasp list-deployments"

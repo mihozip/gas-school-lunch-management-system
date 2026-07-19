@@ -44,6 +44,14 @@ var Config = (function() {
   }
 
   /**
+   * 取得目前是否為自動測試模式
+   * @return {boolean} 是否啟用測試模式
+   */
+  function getTestMode() {
+    return isTestMode;
+  }
+
+  /**
    * 取得目前連接的試算表 ID
    * 優先讀取 Script Property DATABASE_SPREADSHEET_ID，若為空則嘗試取得綁定的 active spreadsheet
    * @return {string} Spreadsheet ID
@@ -94,6 +102,15 @@ var Config = (function() {
    * @return {string} Drive Folder ID
    */
   function getReportRootFolderId() {
+    if (isTestMode) {
+      var testFolderId = getProperty('TEST_REPORT_FOLDER_ID');
+      if (!testFolderId) {
+        var err = new Error('自動測試模式已啟動，但 Script Properties 中未設定 TEST_REPORT_FOLDER_ID');
+        err.code = 'TEST_REPORT_FOLDER_NOT_CONFIGURED';
+        throw err;
+      }
+      return testFolderId;
+    }
     return getProperty('REPORT_ROOT_FOLDER_ID');
   }
 
@@ -262,6 +279,7 @@ var Config = (function() {
     clearAllCache: clearAllCache,
     checkRequiredSettings: checkRequiredSettings,
     setTestMode: setTestMode,
+    getTestMode: getTestMode,
     getEnvironment: getEnvironment
   };
 })();

@@ -13,10 +13,10 @@ var MealExceptionService = (function() {
     var isAdmin = (identity.role === 'system_admin' || identity.role === 'lunch_admin');
     
     // 讀取設定
-    var deadline = Config.get('DAILY_CONFIRM_DEADLINE') || '09:00';
-    var allowRetroactive = Config.get('ALLOW_RETROACTIVE_EDIT') === 'TRUE';
-    var retroactiveDays = parseInt(Config.get('RETROACTIVE_EDIT_DAYS') || '0', 10);
-    var allowAdminOverride = Config.get('ALLOW_SAME_DAY_ADMIN_OVERRIDE') === 'TRUE';
+    var deadline = Config.getSystemConfig('DAILY_CONFIRM_DEADLINE', '09:00');
+    var allowRetroactive = Config.getSystemConfig('ALLOW_RETROACTIVE_EDIT', 'FALSE') === 'TRUE';
+    var retroactiveDays = parseInt(Config.getSystemConfig('RETROACTIVE_EDIT_DAYS', '0'), 10);
+    var allowAdminOverride = Config.getSystemConfig('ALLOW_SAME_DAY_ADMIN_OVERRIDE', 'FALSE') === 'TRUE';
 
     var todayStr = Utils.formatDate(new Date());
 
@@ -143,7 +143,7 @@ var MealExceptionService = (function() {
    * 取得某班級在指定日期的確認明細與狀態
    */
   function getClassMealEntry(classId, dateStr) {
-    AuthService.requireClassScoping(classId);
+    AuthService.requireClassAccess(classId);
 
     // 檢查該日期是否為供餐日
     var schoolDay = SchoolDaysService.getSchoolDay(dateStr);
@@ -178,13 +178,13 @@ var MealExceptionService = (function() {
    * 儲存草稿
    */
   function saveDraft(classId, dateStr, exceptionEntries) {
-    AuthService.requireClassScoping(classId);
+    AuthService.requireClassAccess(classId);
     validateEntryDeadline(dateStr);
 
     // 確保期間未鎖定
     PeriodLockService.assertDateWritable(dateStr);
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       // 檢查是否已鎖定
       var confirmation = SheetRepository.findRecords('DailyClassConfirmations', function(x) {
         return x.date === dateStr && x.class_id === classId;
@@ -197,12 +197,17 @@ var MealExceptionService = (function() {
       var identity = AuthService.getCurrentIdentity();
       var currentDateTime = Utils.formatDateTime(new Date());
 
-      // A. 清除原有的手動未用餐紀錄
+      // A. 軟刪除原有的手動未用餐紀錄
       var oldExceptions = SheetRepository.findRecords('MealExceptions', function(x) {
-        return x.date === dateStr && x.class_id === classId && x.source_type === 'manual';
+        return x.date === dateStr && x.class_id === classId && x.source_type === 'manual' && x.status === 'active';
       });
       oldExceptions.forEach(function(ex) {
-        SheetRepository.deleteRecord('MealExceptions', 'exception_id', ex.exception_id);
+        ex.status = 'deleted';
+        ex.enabled = false;
+        ex.deleted_by = identity ? identity.email : 'system';
+        ex.deleted_at = currentDateTime;
+        ex.deletion_reason = '重新登記時覆蓋舊紀錄';
+        SheetRepository.upsertRecord('MealExceptions', 'exception_id', ex.exception_id, ex);
       });
 
       // B. 寫入新草稿紀錄
@@ -268,20 +273,20 @@ var MealExceptionService = (function() {
       SheetRepository.appendRecord('DailyConfirmationHistory', chRecord);
 
       return newConf;
-    }).error;
+    });
   }
 
   /**
    * 導師完成登記確認
    */
   function confirmClassDay(classId, dateStr, exceptionEntries) {
-    AuthService.requireClassScoping(classId);
+    AuthService.requireClassAccess(classId);
     validateEntryDeadline(dateStr);
 
     // 確保期間未鎖定
     PeriodLockService.assertDateWritable(dateStr);
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var confirmation = SheetRepository.findRecords('DailyClassConfirmations', function(x) {
         return x.date === dateStr && x.class_id === classId;
       })[0];
@@ -293,12 +298,17 @@ var MealExceptionService = (function() {
       var identity = AuthService.getCurrentIdentity();
       var currentDateTime = Utils.formatDateTime(new Date());
 
-      // 1. 清空原有的手動未用餐紀錄
+      // 1. 軟刪除原有的手動未用餐紀錄
       var oldExceptions = SheetRepository.findRecords('MealExceptions', function(x) {
-        return x.date === dateStr && x.class_id === classId && x.source_type === 'manual';
+        return x.date === dateStr && x.class_id === classId && x.source_type === 'manual' && x.status === 'active';
       });
       oldExceptions.forEach(function(ex) {
-        SheetRepository.deleteRecord('MealExceptions', 'exception_id', ex.exception_id);
+        ex.status = 'deleted';
+        ex.enabled = false;
+        ex.deleted_by = identity ? identity.email : 'system';
+        ex.deleted_at = currentDateTime;
+        ex.deletion_reason = '重新登記時覆蓋舊紀錄';
+        SheetRepository.upsertRecord('MealExceptions', 'exception_id', ex.exception_id, ex);
       });
 
       // 2. 寫入最新的手動停餐紀錄
@@ -372,7 +382,7 @@ var MealExceptionService = (function() {
       });
 
       return newConf;
-    }).error;
+    });
   }
 
   /**
@@ -380,7 +390,7 @@ var MealExceptionService = (function() {
    */
   function reopenClassDay(classId, dateStr, reason) {
     // 檢查退回重開角色權限
-    var rolesAllowed = (Config.get('REOPEN_CONFIRM_ROLE') || 'system_admin,lunch_admin').split(',');
+    var rolesAllowed = (Config.getSystemConfig('REOPEN_CONFIRM_ROLE', 'system_admin,lunch_admin')).split(',');
     var identity = AuthService.getCurrentIdentity();
     if (rolesAllowed.indexOf(identity.role) === -1) {
       throw new Error('🛑 權限不足：您所屬的角色無權執行退回重開班級登記的作業。');
@@ -392,7 +402,7 @@ var MealExceptionService = (function() {
     // 確保期間未鎖定
     PeriodLockService.assertDateWritable(dateStr);
 
-    return LockService.runWithLock(function() {
+    return LockServiceHelper.runWithLock(function() {
       var confirmation = SheetRepository.findRecords('DailyClassConfirmations', function(x) {
         return x.date === dateStr && x.class_id === classId;
       })[0];
@@ -434,7 +444,7 @@ var MealExceptionService = (function() {
       });
 
       return updated;
-    }).error;
+    });
   }
 
   /**

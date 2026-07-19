@@ -383,32 +383,157 @@ var TestRunner = (function() {
       return { expected: true, actual: triggered };
     });
 
-    runTest('T9', '一般生公所 50% 縣府 50% 分攤檢驗', [], 'INTEGRATION', false, false, false, false, false, function() {
-      var ledgerRow = {
-        ledger_id: 'L_TEST_001',
-        date: '2026-09-02',
-        student_id: 'S_STU_001',
-        class_id: 'C_CLS_001',
-        subsidy_category_id: 'GENERAL',
-        meal_price_snapshot: '60.00'
-      };
-      var issues = [];
-      var res = FundingCalculationService.calculateFundingForLedgerRow(ledgerRow, 'RUN_FTEST_1', 1, issues);
-      var townshipSum = res.filter(function(x) { return x.funding_source === 'township'; })[0].final_amount_minor;
-      var countySum = res.filter(function(x) { return x.funding_source === 'county'; })[0].final_amount_minor;
-      return { expected: '3000,3000', actual: townshipSum + ',' + countySum };
+    runTest('T9', '一般生公所 50% 縣府 50% 分攤檢驗', ['SubsidyCategories', 'SubsidyRules'], 'INTEGRATION', false, false, false, false, false, function() {
+      var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var categoryId = 'CAT_T9_' + suffix;
+      var ruleTownId = 'RULE_TOWN_T9_' + suffix;
+      var ruleCountyId = 'RULE_COUNTY_T9_' + suffix;
+      var ruleTempId = 'RULE_TEMP_T9_' + suffix;
+
+      try {
+        SheetRepository.appendRecord('SubsidyCategories', {
+          subsidy_category_id: categoryId,
+          category_name: 'GENERAL_TEST_' + suffix,
+          description: 'T9 Test Category'
+        });
+
+        SheetRepository.appendRecord('SubsidyRules', {
+          subsidy_rule_id: ruleTownId,
+          subsidy_category_id: categoryId,
+          funding_source: 'township',
+          calculation_type: 'percentage',
+          subsidy_rate: 5000,
+          subsidy_amount: 0,
+          effective_start_date: '2026-01-01',
+          effective_end_date: '2026-12-31',
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('SubsidyRules', {
+          subsidy_rule_id: ruleCountyId,
+          subsidy_category_id: categoryId,
+          funding_source: 'county',
+          calculation_type: 'percentage',
+          subsidy_rate: 5000,
+          subsidy_amount: 0,
+          effective_start_date: '2026-01-01',
+          effective_end_date: '2026-12-31',
+          enabled: true
+        });
+
+        var ledgerRow = {
+          ledger_id: 'L_TEST_001',
+          date: '2026-09-02',
+          student_id: 'S_STU_001',
+          class_id: 'C_CLS_001',
+          subsidy_category_id: categoryId,
+          meal_price_snapshot: '60.00'
+        };
+        var issues = [];
+        var res = FundingCalculationService.calculateFundingForLedgerRow(ledgerRow, 'RUN_FTEST_1', 1, issues);
+        var townshipSum = res.filter(function(x) { return x.funding_source === 'township'; })[0].final_amount_minor;
+        var countySum = res.filter(function(x) { return x.funding_source === 'county'; })[0].final_amount_minor;
+
+        // 負向測試 1: meal_price_snapshot = '60abc'
+        var triggeredNeg1 = false;
+        var errCodeNeg1 = '';
+        try {
+          var ledgerNeg1 = {
+            ledger_id: 'L_TEST_NEG1',
+            date: '2026-09-02',
+            student_id: 'S_STU_001',
+            class_id: 'C_CLS_001',
+            subsidy_category_id: categoryId,
+            meal_price_snapshot: '60abc'
+          };
+          FundingCalculationService.calculateFundingForLedgerRow(ledgerNeg1, 'RUN_FTEST_NEG1', 1, []);
+        } catch (e) {
+          triggeredNeg1 = true;
+          errCodeNeg1 = e.code || e.message;
+        }
+
+        // 負向測試 2: meal_price_snapshot = 'abc'
+        var triggeredNeg2 = false;
+        var errCodeNeg2 = '';
+        try {
+          var ledgerNeg2 = {
+            ledger_id: 'L_TEST_NEG2',
+            date: '2026-09-02',
+            student_id: 'S_STU_001',
+            class_id: 'C_CLS_001',
+            subsidy_category_id: categoryId,
+            meal_price_snapshot: 'abc'
+          };
+          FundingCalculationService.calculateFundingForLedgerRow(ledgerNeg2, 'RUN_FTEST_NEG2', 1, []);
+        } catch (e) {
+          triggeredNeg2 = true;
+          errCodeNeg2 = e.code || e.message;
+        }
+
+        // 負向測試 3: subsidy_rate = '5000.5' (費率驗證錯誤)
+        var triggeredNeg3 = false;
+        var errCodeNeg3 = '';
+        try {
+          SheetRepository.appendRecord('SubsidyRules', {
+            subsidy_rule_id: ruleTempId,
+            subsidy_category_id: categoryId,
+            funding_source: 'township',
+            calculation_type: 'percentage',
+            subsidy_rate: '5000.5',
+            subsidy_amount: 0,
+            effective_start_date: '2026-01-01',
+            effective_end_date: '2026-12-31',
+            enabled: true
+          });
+          var ledgerNeg3 = {
+            ledger_id: 'L_TEST_NEG3',
+            date: '2026-09-02',
+            student_id: 'S_STU_001',
+            class_id: 'C_CLS_001',
+            subsidy_category_id: categoryId,
+            meal_price_snapshot: '60.00'
+          };
+          FundingCalculationService.calculateFundingForLedgerRow(ledgerNeg3, 'RUN_FTEST_NEG3', 1, []);
+        } catch (e) {
+          triggeredNeg3 = true;
+          errCodeNeg3 = e.code || e.message;
+        } finally {
+          SheetRepository.deleteRecordById('SubsidyRules', 'subsidy_rule_id', ruleTempId);
+        }
+
+        var actualStr = townshipSum + ',' + countySum + ',' + triggeredNeg1 + ',' + errCodeNeg1 + ',' + triggeredNeg2 + ',' + errCodeNeg2 + ',' + triggeredNeg3 + ',' + errCodeNeg3;
+        var expectedStr = '3000,3000,true,MONEY_INVALID_DECIMAL,true,MONEY_INVALID_DECIMAL,true,SUBSIDY_RATE_INVALID';
+        return { expected: expectedStr, actual: actualStr };
+      } finally {
+        SheetRepository.deleteRecordById('SubsidyRules', 'subsidy_rule_id', ruleTownId);
+        SheetRepository.deleteRecordById('SubsidyRules', 'subsidy_rule_id', ruleCountyId);
+        SheetRepository.deleteRecordById('SubsidyCategories', 'subsidy_category_id', categoryId);
+      }
     });
 
     runTest('T10', '月結草稿狀態機建立驗證', ['MonthClosings'], 'INTEGRATION', false, false, false, false, false, function() {
-      var d = MonthClosingService.createClosingDraft('2026-09');
-      return { expected: 'draft', actual: d.status };
+      var randomYear = 2030 + Math.floor(Math.random() * 100);
+      var uniqueYearMonth = randomYear + '-09';
+      var draft;
+      try {
+        draft = MonthClosingService.createClosingDraft(uniqueYearMonth);
+        return { expected: 'draft', actual: draft.status };
+      } finally {
+        if (draft && draft.closing_id) {
+          SheetRepository.deleteRecordById('MonthClosings', 'closing_id', draft.closing_id);
+        }
+      }
     });
 
-    runTest('T11', '月結 closed 後，修改 SchoolDays 被 PERIOD_CLOSED 阻斷', [], 'INTEGRATION', false, false, false, false, false, function() {
+    runTest('T11', '月結 closed 後，修改 SchoolDays 被 PERIOD_CLOSED 阻斷', ['MonthClosings'], 'INTEGRATION', false, false, false, false, false, function() {
+      var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var closingId = 'CLOSE_LOCK_TEST_' + suffix;
       var triggered = false;
       try {
         SheetRepository.appendRecord('MonthClosings', {
-          closing_id: 'CLOSE_LOCK_TEST',
+          closing_id: closingId,
           year_month: '2026-09',
           status: 'closed',
           is_current: true
@@ -417,29 +542,71 @@ var TestRunner = (function() {
       } catch (e) {
         if (e.code === 'PERIOD_CLOSED') triggered = true;
       } finally {
-        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', 'CLOSE_LOCK_TEST');
+        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
       }
       return { expected: true, actual: triggered };
     });
 
-    runTest('T12', '大數據量運算：1,000名學生補助計算效能', [], 'PERFORMANCE', false, false, false, false, false, function() {
-      var pStart = new Date().getTime();
-      var ledgerRow = {
-        ledger_id: 'L_PERF_',
-        date: '2026-09-02',
-        student_id: 'S_PERF_',
-        class_id: 'C_PERF_',
-        subsidy_category_id: 'GENERAL',
-        meal_price_snapshot: '60.00'
-      };
-      var issues = [];
-      for (var k = 0; k < 1000; k++) {
-        ledgerRow.ledger_id = 'L_PERF_' + k;
-        FundingCalculationService.calculateFundingForLedgerRow(ledgerRow, 'RUN_PERF', 1, issues);
+    runTest('T12', '大數據量運算：1,000名學生補助計算效能', ['SubsidyCategories', 'SubsidyRules'], 'PERFORMANCE', false, false, false, false, false, function() {
+      var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var categoryId = 'CAT_T12_' + suffix;
+      var ruleTownId = 'RULE_TOWN_T12_' + suffix;
+      var ruleCountyId = 'RULE_COUNTY_T12_' + suffix;
+
+      try {
+        SheetRepository.appendRecord('SubsidyCategories', {
+          subsidy_category_id: categoryId,
+          category_name: 'GENERAL_TEST_PERF_' + suffix,
+          description: 'T12 Test Category'
+        });
+
+        SheetRepository.appendRecord('SubsidyRules', {
+          subsidy_rule_id: ruleTownId,
+          subsidy_category_id: categoryId,
+          funding_source: 'township',
+          calculation_type: 'percentage',
+          subsidy_rate: 5000,
+          subsidy_amount: 0,
+          effective_start_date: '2026-01-01',
+          effective_end_date: '2026-12-31',
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('SubsidyRules', {
+          subsidy_rule_id: ruleCountyId,
+          subsidy_category_id: categoryId,
+          funding_source: 'county',
+          calculation_type: 'percentage',
+          subsidy_rate: 5000,
+          subsidy_amount: 0,
+          effective_start_date: '2026-01-01',
+          effective_end_date: '2026-12-31',
+          enabled: true
+        });
+
+        var pStart = new Date().getTime();
+        var ledgerRow = {
+          ledger_id: 'L_PERF_',
+          date: '2026-09-02',
+          student_id: 'S_PERF_',
+          class_id: 'C_PERF_',
+          subsidy_category_id: categoryId,
+          meal_price_snapshot: '60.00'
+        };
+        var issues = [];
+        for (var k = 0; k < 1000; k++) {
+          ledgerRow.ledger_id = 'L_PERF_' + k;
+          FundingCalculationService.calculateFundingForLedgerRow(ledgerRow, 'RUN_PERF', 1, issues);
+        }
+        var pDuration = new Date().getTime() - pStart;
+        report.performance.funding_calculation_1000_rows_ms = pDuration;
+        return { expected: true, actual: pDuration < 15000 };
+      } finally {
+        SheetRepository.deleteRecordById('SubsidyRules', 'subsidy_rule_id', ruleTownId);
+        SheetRepository.deleteRecordById('SubsidyRules', 'subsidy_rule_id', ruleCountyId);
+        SheetRepository.deleteRecordById('SubsidyCategories', 'subsidy_category_id', categoryId);
       }
-      var pDuration = new Date().getTime() - pStart;
-      report.performance.funding_calculation_1000_rows_ms = pDuration;
-      return { expected: true, actual: pDuration < 15000 };
     });
 
     runTest('T13', '實際呼叫 Docs Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'DOCS', false, true, true, false, true, function() {
@@ -752,6 +919,7 @@ var TestRunner = (function() {
       var res;
       var mimeType = '';
       var size = -1;
+      var parentMatched = false;
       
       var testRoot = DriveApp.getFolderById(Config.getReportRootFolderId());
       var previewsFolder = getOrCreateSubFolder(testRoot, 'previews_temp');
@@ -843,6 +1011,14 @@ var TestRunner = (function() {
           } catch (e) {
             tempFileCleaned = false;
           }
+
+          var parents = pdfFile.getParents();
+          while (parents.hasNext()) {
+            if (parents.next().getId() === previewsFolder.getId()) {
+              parentMatched = true;
+              break;
+            }
+          }
         }
 
       } finally {
@@ -869,33 +1045,32 @@ var TestRunner = (function() {
         }
       }
 
-      var expectedStr = 'true,application/pdf,true,true';
-      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned;
+      var expectedStr = 'true,application/pdf,true,true,true';
+      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned + ',' + parentMatched;
       return { expected: expectedStr, actual: actualStr };
     });
 
     runTest('T16', '核准範本與版本規格更新', ['ReportTemplates'], 'INTEGRATION', false, false, false, false, false, function() {
-      var list = SheetRepository.findRecords('ReportTemplates', function(x) { return x.status === 'draft'; });
-      var target;
-      if (list.length > 0) {
-        target = list[0];
-      } else {
-        // 無現有 draft 範本，自行建立一份以進行測試
-        target = ReportService.createReportTemplate({
-          report_type: 'TEST_APPROVAL_FLOW',
-          template_name: '核准流程測試範本',
-          template_format: 'HTML'
-        });
+      var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var target = ReportService.createReportTemplate({
+        report_type: 'TEST_APPROVAL_FLOW_' + suffix,
+        template_name: 'TEST_APPROVAL_' + suffix,
+        template_format: 'HTML'
+      });
+      try {
+        var approved = ReportService.approveReportTemplate(target.template_id);
+        return { expected: 'approved', actual: approved.status };
+      } finally {
+        SheetRepository.deleteRecordById('ReportTemplates', 'template_id', target.template_id);
       }
-      var approved = ReportService.approveReportTemplate(target.template_id);
-      // 清理
-      SheetRepository.deleteRecordById('ReportTemplates', 'template_id', target.template_id);
-      return { expected: 'approved', actual: approved.status };
     });
 
     runTest('T17', '未核准 (draft) 範本禁止用於產生正式報表', ['MonthClosings', 'ReportTemplates'], 'AUTH', false, false, false, false, false, function() {
-      var closingId = 'CLOSE_TEST_T17';
-      var templateId = 'TMP_TEST_T17';
+      var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var closingId = 'CLOSE_TEST_T17_' + suffix;
+      var templateId = 'TMP_TEST_T17_' + suffix;
       var triggered = false;
       var errorCode = '';
       
@@ -1128,8 +1303,14 @@ var TestRunner = (function() {
     });
 
     runTest('T19', '報表會簽核章工作流核可狀態移轉與稽核日誌寫入', ['ReportGenerationRuns', 'ApprovalRecords', 'AuditLogs'], 'INTEGRATION', false, false, false, false, false, function() {
-      var runId = 'RUN_T19_TEST';
-      var closingId = 'CLOSE_T19_TEST';
+      var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var runId = 'RUN_T19_TEST_' + suffix;
+      var closingId = 'CLOSE_T19_TEST_' + suffix;
+      var templateId = 'TMP_T19_' + suffix;
+      var outputFileId = 'TEST_OUTPUT_T19_' + suffix;
+      var reportHash = 'hash123_t19_' + suffix;
+      
       var record;
       var auditLog;
       
@@ -1140,10 +1321,10 @@ var TestRunner = (function() {
           closing_id: closingId,
           closing_version: 1,
           year_month: '2026-09',
-          template_id: 'TMP_T19',
+          template_id: templateId,
           template_version: 1,
-          output_file_id: 'TEST_OUTPUT_T19',
-          report_hash: 'hash123_t19',
+          output_file_id: outputFileId,
+          report_hash: reportHash,
           started_by: 'system_admin',
           completed_at: Utils.formatDateTime(new Date()),
           is_current: true
@@ -1169,7 +1350,7 @@ var TestRunner = (function() {
       }
 
       var identity = AuthService.getCurrentIdentity();
-      var expectedStr = 'approved,lunch_admin_checked,hash123_t19,true,true';
+      var expectedStr = 'approved,lunch_admin_checked,' + reportHash + ',true,true';
       var actualStr = record.decision + ',' + record.approval_stage + ',' + record.source_hash + ',' + (!!record.approval_id) + ',' + (!!auditLog);
       return { expected: expectedStr, actual: actualStr };
     });

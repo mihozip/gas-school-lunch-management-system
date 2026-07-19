@@ -518,6 +518,74 @@ checkServiceExportsAndCalls();
 checkFrontendNoDirectConfig();
 checkBannedIntegrityRules();
 
+function checkPreUatIntegrityRules() {
+  const runnerPath = 'src/backend/TestRunner.gs';
+  const fundingPath = 'src/backend/FundingCalculationService.gs';
+  
+  if (fs.existsSync(runnerPath)) {
+    const content = fs.readFileSync(runnerPath, 'utf8');
+    
+    // 1. T9, T12 enabled rules fixture check
+    const t9Match = content.match(/runTest\('T9'[\s\S]*?runTest\('T10'/);
+    if (t9Match && (!t9Match[0].includes("appendRecord('SubsidyRules'") || !t9Match[0].includes("appendRecord('SubsidyCategories'"))) {
+      logError("TestRunner.gs T9 測試必須有自己的 enabled 測試規則與分類 fixture！");
+    }
+    const t12Match = content.match(/runTest\('T12'[\s\S]*?runTest\('T13'/);
+    if (t12Match && (!t12Match[0].includes("appendRecord('SubsidyRules'") || !t12Match[0].includes("appendRecord('SubsidyCategories'"))) {
+      logError("TestRunner.gs T12 測試必須有自己的 enabled 測試規則與分類 fixture！");
+    }
+
+    // 2. T10 cleanup check
+    const t10Match = content.match(/runTest\('T10'[\s\S]*?runTest\('T11'/);
+    if (t10Match && (!t10Match[0].includes("finally") || !t10Match[0].includes("deleteRecordById('MonthClosings'"))) {
+      logError("TestRunner.gs T10 測試必須清理 createClosingDraft 產生的 closing_id！");
+    }
+
+    // 3. T16 draft template check
+    const t16Match = content.match(/runTest\('T16'[\s\S]*?runTest\('T17'/);
+    if (t16Match && (t16Match[0].includes("list[0]") || t16Match[0].includes("status === 'draft'"))) {
+      logError("TestRunner.gs T16 測試禁止使用 list[0] 或狀態為 draft 的既有範本，必須建立自有範本！");
+    }
+
+    // 4. T11, T17, T19 banned fixed IDs
+    const bannedIds = [
+      "'CLOSE_LOCK_TEST'", '"CLOSE_LOCK_TEST"',
+      "'CLOSE_TEST_T17'", '"CLOSE_TEST_T17"',
+      "'TMP_TEST_T17'", '"TMP_TEST_T17"',
+      "'RUN_T19_TEST'", '"RUN_T19_TEST"',
+      "'CLOSE_T19_TEST'", '"CLOSE_T19_TEST"',
+      "'TMP_T19'", '"TMP_T19"'
+    ];
+    bannedIds.forEach(id => {
+      if (content.includes(id)) {
+        logError(`TestRunner.gs 中禁止使用固定測試 ID: ${id}，必須附加動態 suffix！`);
+      }
+    });
+
+    // 7. T15 PDF parent folder check
+    const t15Match = content.match(/runTest\('T15'[\s\S]*?runTest\('T16'/);
+    if (t15Match && (!t15Match[0].includes("getParents()") || !t15Match[0].includes("parentMatched"))) {
+      logError("TestRunner.gs T15 測試必須驗證產出 PDF 是否存放於 previewsFolder 子資料夾！");
+    }
+  }
+
+  if (fs.existsSync(fundingPath)) {
+    const content = fs.readFileSync(fundingPath, 'utf8');
+    
+    // 5. FundingCalculationService meal_price_snapshot parseFloat check
+    if (content.includes("parseFloat(ledgerRow.meal_price_snapshot)")) {
+      logError("FundingCalculationService.gs 不得對 meal_price_snapshot 使用 parseFloat，必須使用 strict parser！");
+    }
+    
+    // 6. FundingCalculationService fixed amount yuanToMinor check
+    if (content.includes("MoneyService.yuanToMinor(fixedYuan)")) {
+      logError("FundingCalculationService.gs 固定金額不得使用寬鬆 yuanToMinor，必須使用 strict money parser！");
+    }
+  }
+
+  console.log("✓ Pre-UAT runtime test isolation and strict money rules check passed.");
+}
+
 checkReportServiceNoYuanToMinor();
 checkNoMinorLogicalOr();
 checkParseMinorStrictAllowNegative();
@@ -525,6 +593,7 @@ checkYuanToMinorStrictDecimals();
 checkDeployScriptCreationCommands();
 checkTestRunnerFixtureIdUniqueness();
 checkReportCommitHash();
+checkPreUatIntegrityRules();
 
 if (errorsCount > 0) {
   console.error(`\n🛑 靜態完整性檢查失敗！共發現 ${errorsCount} 個錯誤。`);

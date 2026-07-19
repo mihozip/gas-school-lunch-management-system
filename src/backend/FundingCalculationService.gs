@@ -158,8 +158,7 @@ var FundingCalculationService = (function() {
    */
   function calculateFundingForLedgerRow(ledgerRow, runId, version, issuesList) {
     var dateStr = ledgerRow.date;
-    var grossYuan = parseFloat(ledgerRow.meal_price_snapshot);
-    var grossMinor = MoneyService.yuanToMinor(grossYuan);
+    var grossMinor = MoneyService.yuanToMinorStrict(ledgerRow.meal_price_snapshot, 'meal_price_snapshot');
 
     // 1. 取得該日期與該身分適用的補助規則
     var rules = getApplicableFundingRules(ledgerRow.subsidy_category_id, dateStr);
@@ -179,9 +178,19 @@ var FundingCalculationService = (function() {
 
     // 3. 逐條規則計算 Raw Amount (分數或小數)
     sortedRules.forEach(function(rule) {
-      var bps = parseInt(rule.subsidy_rate, 10) || 0;
-      var fixedYuan = parseFloat(rule.subsidy_amount) || 0;
-      var fixedMinor = MoneyService.yuanToMinor(fixedYuan);
+      var bpsVal = rule.subsidy_rate;
+      if (bpsVal === undefined || bpsVal === null || bpsVal === '') {
+        bpsVal = 0;
+      }
+      var bps = Number(bpsVal);
+      if (!Number.isFinite(bps) || !Number.isInteger(bps)) {
+        var err = new Error('🛑 費率必須為安全整數，實際得到：' + bpsVal);
+        err.code = 'SUBSIDY_RATE_INVALID';
+        throw err;
+      }
+      SubsidyRuleService.validateRateBasisPoints(bps);
+
+      var fixedMinor = MoneyService.yuanToMinorStrict(rule.subsidy_amount || '0', 'subsidy_amount');
 
       var alloc = {
         allocation_id: 'ALC_' + ledgerRow.ledger_id.substring(7) + '_' + rule.funding_source + '_' + Math.floor(Math.random() * 100),

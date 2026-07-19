@@ -2,7 +2,7 @@
 
 ## 1. 修正前與修正後 Commit
 * **修正前 Commit**: `13f4ca7a1a36230101eb300281c62393faedc9c1`
-* **修正後 Commit**: `87257176a2d9ffc1a02eca2cb0f54a2a54fa8c1d`
+* **修正後 Commit**: `13595dd1fb79999722048bfbf55f03b03b8e49e0`
 
 ---
 
@@ -115,7 +115,7 @@
 - **真實 CSV 隔離測試**：T13、T14 與 T18 廢除 `MOCK_FILE_` 假檔案模擬。測試時會於 `TEST_REPORT_FOLDER_ID` 動態產生帶有 UUID 檔名之真實 CSV，且 CSV 包含合法欄位 Header，測試結束後自動以 `setTrashed(true)` 進行清理。
 - **暫存檔清理與負向驗證**：比對 Renderer 執行前後 `TEST_REPORT_FOLDER_ID` 之暫存檔案清單，確保無新暫存檔洩漏；並實作負向驗證 helper，手動建立假暫存檔，確認清理檢查能正確回傳 `false`。
 - **T17 簡化**：簡化 T17 以驗證 `draft` 範本禁止用於產生正式報表（拋出 `DRAFT_TEMPLATE_NOT_ALLOWED`），移除了無謂的 `ClosingArtifacts` 與 `DUMMY_FILE_ID_T17`。
-- **T18 隱私去識別化與金額不一致驗證**：驗證 `PUBLIC_SUMMARY` 遮罩姓名為 `***`；並透過修改月彙總金額至 5999 進行負向測試，成功拋出 `REPORT_SUMMARY_TOTAL_MISMATCH`，實作了嚴格的四方金額平衡校驗。
+- **T18 隱私去識別化與金額不一致驗證**：驗證 `PUBLIC_SUMMARY` 遮罩姓名為 `***`；並透過修改月彙總金額至 5999 進行負向測試，已建立負向測試斷言以驗證其會拋出 `REPORT_SUMMARY_TOTAL_MISMATCH`，實作了嚴格的四方金額平衡校驗。
 
 ### 3.10 deploy.sh 修正 (Item 十)
 - 所有 clasp 指令外部調用均採用 `if ! OUTPUT=$(npx clasp ...); then exit 1; fi` 的安全攔截，並拋出對應的 `[PUSH_FAILED]`、`[VERSION_CREATION_FAILED]` 等錯誤代碼。
@@ -154,7 +154,7 @@
 - **FundingCalculationService 金額與費率校驗**：
   - 禁用寬鬆的 `parseFloat(ledgerRow.meal_price_snapshot)` 及 `yuanToMinor`，全面改以 strict 模式的 `yuanToMinorStrict` 處理單價與固定補助金額。
   - 限制 `subsidy_rate` (BPS) 必須為安全整數（以 `Number()`、`Number.isFinite`、`Number.isInteger` 校驗），並調用 `validateRateBasisPoints` 限制其區間。
-  - 於 T9 新增針對非整數費率 (`5000.5`) 及非法單價金額 (`60abc`、`abc`) 的嚴格負向測試。
+  - 已於 T9 新增對非整數費率 (`5000.5`) 及非法單價金額 (`60abc`、`abc`)、比例費率與固定金額缺失、及非法固定金額之負向測試斷言。
 
 ---
 

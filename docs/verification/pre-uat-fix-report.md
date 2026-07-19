@@ -2,7 +2,7 @@
 
 ## 1. 修正前與修正後 Commit
 * **修正前 Commit**: `13f4ca7a1a36230101eb300281c62393faedc9c1`
-* **修正後 Commit**: `c4f86d7af6c53bc1b8a59d57ce31eb163abd5f52`
+* **修正後 Commit**: `7d9d0678849f9b40da47754d3162d133f7ef1592`
 
 ---
 
@@ -146,22 +146,31 @@
 
 ---
 
-## 4. 驗收結果
-* `npm run check:static`：**PASSED**（所有靜態分析與 Service exports 匹配均完美通過）
-* `bash -n deploy.sh`：**PASSED**
-* `npm run deploy:dry-run`：**PASSED**
-* `grep -RInE '\}\)\.error' src/backend`：**0 matches**
-* `grep -RIn "MOCK_FILE_" src/backend`：**0 matches**
-* `grep -RIn "DUMMY_FILE_" src/backend/TestRunner.gs`：**0 matches**
-* `grep -RIn "getFilesByName(.*\\*" src`：**0 matches**
-* `grep -RIn "innerHTML.*err.message" src/frontend`：**0 matches**
-* `grep -RIn "parseFloat(l.meal_price_snapshot" src`：**0 matches**
+## 4. 驗收與驗證狀態
+
+### A. 已完成的靜態驗證
+* `npm ci`：**PASSED**
+* `npm run check:static`：**PASSED** (所有靜態分析與 Service exports 匹配均完美通過)
+* `bash -n deploy.sh`：**PASSED** (語法驗證通過)
+* `npm run deploy:dry-run`：**PASSED** (dry-run 模擬執行無誤)
+* `GitHub Actions CI`：**PASSED** (與 PR Head Commit Hash 成功整合，工作流成功)
+
+### B. 已建立但未執行的 Apps Script 測試
+* **T1 strict money cases** (已重構，包含標準十進位、小數點位數限制、非負值、firstPresentValue 零值及 allowNegative 測試)
+* **T13 Docs Renderer** (已重構，以動態 UUID UUID 為 ID 避免碰撞，並以 cleanupFiles 於 finally 階段安全清理垃圾桶)
+* **T14 Sheets Renderer** (已重構，以動態 UUID UUID 為 ID 避免碰撞，並以 cleanupFiles 於 finally 階段安全清理垃圾桶)
+* **T15 HTML Renderer** (已重構，新增真實 PDF 產出、MIME 與 size > 0 驗證、temp_render_*.html 暫存清理及 CSV 隔離與垃圾桶清理斷言)
+* **T18 privacy and mismatch cases** (已重構，驗證 PUBLIC_SUMMARY 去識別化、負向金額不一致 MISMATCH 拋出、並新增 meal_price_snapshot 為 abc 時的嚴格拋出檢驗)
+
+### C. 尚未驗證
+* `TestRunner.runAllTests`：**NOT_RUN**
+* **Drive 實際清理**：**NOT_VERIFIED** (尚待真實 Drive API 實機執行)
+* **Docs／Sheets／HTML PDF 實際渲染**：**NOT_VERIFIED** (尚待實機渲染測試)
+* **clasp login 自動引導**：**NOT_VERIFIED** (尚待實機互動)
+* **standalone 專案實際建立**：**NOT_VERIFIED** (尚待實機 clasp 憑證與建置)
+* **真實角色帳號權限**：**NOT_VERIFIED** (尚待 Google Workspace 網域帳號測試)
+
 * **Pull Request URL**: https://github.com/mihozip/gas-school-lunch-management-system/pull/1
 * **PRE_UAT_FIX_STATUS**: `PARTIAL`
-* **說明**：
-  - 靜態檢查通過
-  - deploy dry-run 通過
-  - 尚未完成真實 Google Apps Script UAT
-  - 尚未驗證 19 項 TestRunner
-  - 尚未驗證 Docs／Sheets PDF Renderer
-  - 尚未驗證角色帳號
+* **TestRunner execution status**: `NOT_RUN`
+* **Docs／Sheets／HTML Renderer runtime status**: `NOT_VERIFIED`

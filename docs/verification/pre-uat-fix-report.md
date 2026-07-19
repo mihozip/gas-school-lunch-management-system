@@ -2,7 +2,7 @@
 
 ## 1. 修正前與修正後 Commit
 * **修正前 Commit**: `13f4ca7a1a36230101eb300281c62393faedc9c1`
-* **修正後 Commit**: `7d9d0678849f9b40da47754d3162d133f7ef1592`
+* **修正後 Commit**: `87257176a2d9ffc1a02eca2cb0f54a2a54fa8c1d`
 
 ---
 
@@ -143,6 +143,18 @@
 ### 3.12 點餐設定嚴格校驗與 XSS 跳脫 (新增項目)
 - **設定嚴格校驗**：`apiGetMealEntryConfig()` 校驗 `DAILY_CONFIRM_DEADLINE` 符合 `HH:mm` 格式，`RETROACTIVE_EDIT_DAYS` 為非負有限整數，`ALLOW_RETROACTIVE_EDIT` 與 `ALLOW_SAME_DAY_ADMIN_OVERRIDE` 為嚴格布林值/字串，違規時拋出 `CONFIG_INVALID_DEADLINE`、`CONFIG_INVALID_RETROACTIVE_DAYS`、`CONFIG_INVALID_BOOLEAN`。
 - **前端 XSS 安全跳脫**：將所有前端的 error message innerHTML 拼接改以 `escapeHtml` 處理以防止 XSS 攻擊。
+
+### 3.13 測試自包含隔離與 FundingCalculationService 金額校驗 (新增項目)
+- **測試環境完全自包含**：
+  - T9、T12 不再依賴資料庫既有規則，改為於測試期間動態建立唯一的測試規則與分類，並在 `finally` 區塊中完整清理，確保測試的獨立運作與等冪性。
+  - T10 已修正為動態產生 `year_month`，且於 `finally` 階段安全透過 `closing_id` 精確清理 MonthClosing 暫存。
+  - T16 已移除對既有草稿範本的依賴，永遠建立自有的 UUID 命名範本，並精確透過 template_id 清理，避免污染資料庫。
+  - T11、T17、T19 全數加入動態 UUID 產生機制，禁用固定測試 ID，防止碰撞與殘留。
+  - T15 強化 PDF 資料夾斷言，真實確認產出的 PDF 被放置在隔離的 `previewsFolder` 底下。
+- **FundingCalculationService 金額與費率校驗**：
+  - 禁用寬鬆的 `parseFloat(ledgerRow.meal_price_snapshot)` 及 `yuanToMinor`，全面改以 strict 模式的 `yuanToMinorStrict` 處理單價與固定補助金額。
+  - 限制 `subsidy_rate` (BPS) 必須為安全整數（以 `Number()`、`Number.isFinite`、`Number.isInteger` 校驗），並調用 `validateRateBasisPoints` 限制其區間。
+  - 於 T9 新增針對非整數費率 (`5000.5`) 及非法單價金額 (`60abc`、`abc`) 的嚴格負向測試。
 
 ---
 

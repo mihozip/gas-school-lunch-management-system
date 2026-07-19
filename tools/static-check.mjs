@@ -475,7 +475,7 @@ function checkReportCommitHash() {
   
   let latestProgramCommit = '';
   try {
-    latestProgramCommit = execSync('git log -1 --format=%H -- src tools deploy.sh').toString().trim();
+    latestProgramCommit = execSync('git log -1 --format=%H -- src tools deploy.sh .github/workflows package.json package-lock.json appsscript.json').toString().trim();
   } catch (e) {
     logError('無法取得最新程式 Commit Hash！');
     return;
@@ -484,7 +484,13 @@ function checkReportCommitHash() {
   const statusOut = execSync('git status --porcelain').toString();
   const hasProgramChanges = statusOut.split('\n').some(line => {
     const file = line.substring(3);
-    return file.startsWith('src/') || file.startsWith('tools/') || file === 'deploy.sh';
+    return file.startsWith('src/') || 
+           file.startsWith('tools/') || 
+           file === 'deploy.sh' ||
+           file.startsWith('.github/workflows/') ||
+           file === 'package.json' ||
+           file === 'package-lock.json' ||
+           file === 'appsscript.json';
   });
   
   if (!hasProgramChanges && reportCommit !== latestProgramCommit) {

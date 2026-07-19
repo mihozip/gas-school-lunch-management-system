@@ -740,7 +740,7 @@ var TestRunner = (function() {
       return { expected: expectedStr, actual: actualStr };
     });
 
-    runTest('T15', 'HTML 報表渲染器產出 PDF 與暫存檔安全清理驗證', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'UNIT', false, false, false, false, false, function() {
+    runTest('T15', 'HTML 報表渲染器產出 PDF 與暫存檔安全清理驗證', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'INTEGRATION', false, true, false, false, true, function() {
       var testRunId = Utils.generateUUID();
       var suffix = testRunId.substring(0, 8);
       var closingId = 'CLOSE_T15_' + suffix;
@@ -753,11 +753,11 @@ var TestRunner = (function() {
       var mimeType = '';
       var size = -1;
       
-      var folderId = Config.getReportRootFolderId();
-      var testFolder = DriveApp.getFolderById(folderId);
+      var testRoot = DriveApp.getFolderById(Config.getReportRootFolderId());
+      var previewsFolder = getOrCreateSubFolder(testRoot, 'previews_temp');
       
       var beforeFileIds = [];
-      var filesIter = testFolder.getFiles();
+      var filesIter = previewsFolder.getFiles();
       while (filesIter.hasNext()) {
         beforeFileIds.push(filesIter.next().getId());
       }
@@ -776,14 +776,14 @@ var TestRunner = (function() {
           meal_count_total: 1
         });
 
-        // 2. 建立真實的 CSV 檔案 (隔離在 testFolder)
-        fLedger = testFolder.createFile('temp_t15_ledger_' + testRunId + '.csv', 
+        // 2. 建立真實的 CSV 檔案 (隔離在 previewsFolder)
+        fLedger = previewsFolder.createFile('temp_t15_ledger_' + testRunId + '.csv', 
           'eligible_meal_count,student_name,student_name_masked,date,class_code_snapshot,meal_price_snapshot,meal_price_minor_snapshot\n1,陳小明,陳○明,2026-09-01,G1C1,60.00,6000',
           MimeType.PLAIN_TEXT);
-        fAlloc = testFolder.createFile('temp_t15_alloc_' + testRunId + '.csv',
+        fAlloc = previewsFolder.createFile('temp_t15_alloc_' + testRunId + '.csv',
           'funding_source,settlement_amount_minor,final_amount_minor\ntownship,6000,6000',
           MimeType.PLAIN_TEXT);
-        fSummary = testFolder.createFile('temp_t15_summary_' + testRunId + '.csv',
+        fSummary = previewsFolder.createFile('temp_t15_summary_' + testRunId + '.csv',
           'funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,6000,6000,6000,1',
           MimeType.PLAIN_TEXT);
 
@@ -838,7 +838,7 @@ var TestRunner = (function() {
           size = pdfFile.getSize();
           
           try {
-            assertNoNewActiveFiles(testFolder, 'temp_render_', beforeFileIds);
+            assertNoNewActiveFiles(previewsFolder, 'temp_render_', beforeFileIds);
             tempFileCleaned = true;
           } catch (e) {
             tempFileCleaned = false;

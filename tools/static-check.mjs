@@ -1,6 +1,7 @@
 // tools/static-check.mjs
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 
 let errorsCount = 0;
 
@@ -366,6 +367,130 @@ function checkBannedIntegrityRules() {
   console.log('✓ Banned integrity rules check completed.');
 }
 
+function checkReportServiceNoYuanToMinor() {
+  const reportPath = 'src/backend/ReportService.gs';
+  if (!fs.existsSync(reportPath)) return;
+  const content = fs.readFileSync(reportPath, 'utf8');
+  if (content.includes('MoneyService.yuanToMinor(')) {
+    logError('ReportService.gs 中禁止呼召寬鬆的 MoneyService.yuanToMinor()！必須改用 MoneyService.yuanToMinorStrict()。');
+  } else {
+    console.log('✓ ReportService no yuanToMinor check passed.');
+  }
+}
+
+function checkNoMinorLogicalOr() {
+  const searchInDir = (dir) => {
+    fs.readdirSync(dir).forEach(file => {
+      const fullPath = path.join(dir, file);
+      if (fs.statSync(fullPath).isDirectory()) {
+        searchInDir(fullPath);
+      } else if (file.endsWith('.gs')) {
+        if (fullPath.includes('node_modules') || fullPath.includes('tools/')) return;
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const bannedKeys = [
+          'settlement_amount_minor',
+          'final_amount_minor',
+          'settlement_total_minor',
+          'gross_amount_minor',
+          'residual_adjustment_minor'
+        ];
+        bannedKeys.forEach(key => {
+          const regexStr = key + '\\s*\\|\\|';
+          const regex = new RegExp(regexStr, 'g');
+          if (regex.test(content)) {
+            logError(`檔案 ${fullPath} 含有財務欄位 "${key}" 邏輯或 (||) 串接，應使用 firstPresentValue 處理。`);
+          }
+        });
+      }
+    });
+  };
+  searchInDir('src');
+  console.log('✓ No minor logical OR check completed.');
+}
+
+function checkParseMinorStrictAllowNegative() {
+  const moneyPath = 'src/backend/MoneyService.gs';
+  if (!fs.existsSync(moneyPath)) return;
+  const content = fs.readFileSync(moneyPath, 'utf8');
+  if (!content.includes('allowNegative')) {
+    logError('MoneyService.gs 中的 parseMinorStrict 必須支援 options.allowNegative 參數與規格！');
+  } else {
+    console.log('✓ parseMinorStrict allowNegative check passed.');
+  }
+}
+
+function checkYuanToMinorStrictDecimals() {
+  const moneyPath = 'src/backend/MoneyService.gs';
+  if (!fs.existsSync(moneyPath)) return;
+  const content = fs.readFileSync(moneyPath, 'utf8');
+  if (!content.includes('yuanToMinorStrict') || !content.includes('MONEY_INVALID_DECIMAL')) {
+    logError('MoneyService.gs 中的 yuanToMinorStrict 必須進行標準十進位驗證，並回傳 MONEY_INVALID_DECIMAL 錯誤碼！');
+  } else {
+    console.log('✓ yuanToMinorStrict decimal verification check passed.');
+  }
+}
+
+function checkDeployScriptCreationCommands() {
+  const deployPath = 'deploy.sh';
+  if (!fs.existsSync(deployPath)) return;
+  const content = fs.readFileSync(deployPath, 'utf8');
+  if (!content.includes('create-script')) {
+    logError('deploy.sh 必須使用 clasp create-script 命令！');
+  }
+  if (content.includes('clasp create --type webapp') || content.includes('create --type webapp')) {
+    logError('deploy.sh 中不得呼叫 clasp create --type webapp！');
+  }
+  if (!content.includes('--type standalone')) {
+    logError('deploy.sh 中自動建立專案必須使用 --type standalone 參數！');
+  }
+  console.log('✓ deploy.sh script creation commands check completed.');
+}
+
+function checkTestRunnerFixtureIdUniqueness() {
+  const runnerPath = 'src/backend/TestRunner.gs';
+  if (!fs.existsSync(runnerPath)) return;
+  const content = fs.readFileSync(runnerPath, 'utf8');
+  const bannedIds = ['CLOSE_TEST_T13', 'TMP_TEST_T13', 'ART_T13_L', 'CLOSE_TEST_T14', 'TMP_TEST_T14', 'ART_T14_L', 'CLOSE_TEST_T18', 'TMP_TEST_T18', 'ART_T18_L'];
+  bannedIds.forEach(id => {
+    if (content.includes(`'${id}'`) || content.includes(`"${id}"`)) {
+      logError(`TestRunner.gs 不得使用寫死的固定 ID "${id}"，必須包含唯一 testRunId！`);
+    }
+  });
+  console.log('✓ TestRunner fixture ID uniqueness check completed.');
+}
+
+function checkReportCommitHash() {
+  const reportPath = 'docs/verification/pre-uat-fix-report.md';
+  if (!fs.existsSync(reportPath)) return;
+  const content = fs.readFileSync(reportPath, 'utf8');
+  const match = content.match(/\*\*修正後 Commit\*\*:\s*`([a-f0-9]+)`/i);
+  if (!match) {
+    logError('無法在 pre-uat-fix-report.md 中找到「修正後 Commit」！');
+    return;
+  }
+  const reportCommit = match[1];
+  
+  let gitHead = '';
+  try {
+    gitHead = execSync('git rev-parse HEAD').toString().trim();
+  } catch (e) {
+    logError('無法透過 git rev-parse HEAD 取得 Commit Hash！');
+    return;
+  }
+  
+  const statusOut = execSync('git status --porcelain').toString();
+  const hasProgramChanges = statusOut.split('\n').some(line => {
+    const file = line.substring(3);
+    return file.startsWith('src/') || file.startsWith('tools/') || file === 'deploy.sh';
+  });
+  
+  if (!hasProgramChanges && reportCommit !== gitHead) {
+    logError(`驗證報告中的修正後 Commit (${reportCommit}) 與最新程式 Commit (${gitHead}) 不符！`);
+  } else {
+    console.log(`✓ pre-uat-fix-report.md commit hash check passed (${reportCommit}).`);
+  }
+}
+
 checkCodeGsDuplicateApis();
 checkBannedPatterns();
 checkPlaceholderTests();
@@ -383,6 +508,14 @@ checkDeployShOrTrue();
 checkServiceExportsAndCalls();
 checkFrontendNoDirectConfig();
 checkBannedIntegrityRules();
+
+checkReportServiceNoYuanToMinor();
+checkNoMinorLogicalOr();
+checkParseMinorStrictAllowNegative();
+checkYuanToMinorStrictDecimals();
+checkDeployScriptCreationCommands();
+checkTestRunnerFixtureIdUniqueness();
+checkReportCommitHash();
 
 if (errorsCount > 0) {
   console.error(`\n🛑 靜態完整性檢查失敗！共發現 ${errorsCount} 個錯誤。`);

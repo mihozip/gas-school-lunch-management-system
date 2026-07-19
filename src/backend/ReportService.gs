@@ -183,25 +183,13 @@ var ReportService = (function() {
       var priceMinor = 0;
 
       if (hasMinor) {
-        var minorVal = l.meal_price_minor_snapshot;
-        var numMinor = Number(minorVal);
-        if (!Number.isFinite(numMinor) || !Number.isInteger(numMinor) || numMinor < 0) {
-          var err = new Error('🛑 報表欄位錯誤：餐價 minor 單位快照必須為非負整數：' + minorVal);
-          err.code = 'REPORT_LEDGER_ROW_INVALID';
-          throw err;
-        }
-        priceMinor = numMinor;
+        priceMinor = MoneyService.parseMinorStrict(l.meal_price_minor_snapshot, 'meal_price_minor_snapshot');
       }
 
       var yuanConvertedMinor = 0;
       if (hasYuan) {
         var rawYuan = l.meal_price_snapshot;
-        yuanConvertedMinor = MoneyService.yuanToMinor(rawYuan);
-        if (yuanConvertedMinor < 0) {
-          var err = new Error('🛑 報表欄位錯誤：餐價快照不得為負數。');
-          err.code = 'REPORT_LEDGER_ROW_INVALID';
-          throw err;
-        }
+        yuanConvertedMinor = MoneyService.yuanToMinorStrict(rawYuan, 'meal_price_snapshot');
         if (!hasMinor) {
           priceMinor = yuanConvertedMinor;
         }
@@ -223,14 +211,14 @@ var ReportService = (function() {
     // 2. Sum allocationLedgerTotalMinor
     var allocationLedgerTotalMinor = 0;
     allocs.forEach(function(al) {
-      var amt = MoneyService.parseMinorStrict(al.settlement_amount_minor || al.final_amount_minor || 0, 'settlement_amount_minor/final_amount_minor');
+      var amt = MoneyService.parseMinorStrict(MoneyService.firstPresentValue(al, ['settlement_amount_minor', 'final_amount_minor']), 'settlement_amount_minor/final_amount_minor');
       allocationLedgerTotalMinor += amt;
     });
 
     // 3. Sum monthlyFundingSummaryTotalMinor
     var monthlyFundingSummaryTotalMinor = 0;
     fSums.forEach(function(fs) {
-      var amt = MoneyService.parseMinorStrict(fs.settlement_total_minor || fs.final_amount_minor || 0, 'settlement_total_minor/final_amount_minor');
+      var amt = MoneyService.parseMinorStrict(MoneyService.firstPresentValue(fs, ['settlement_total_minor', 'final_amount_minor']), 'settlement_total_minor/final_amount_minor');
       monthlyFundingSummaryTotalMinor += amt;
     });
 
@@ -245,7 +233,7 @@ var ReportService = (function() {
       errSum.code = 'REPORT_SUMMARY_TOTAL_MISMATCH';
       throw errSum;
     }
-    if (ledgerGrossMinor !== MoneyService.parseMinorStrict(closing.gross_amount_minor || 0, 'gross_amount_minor')) {
+    if (ledgerGrossMinor !== MoneyService.parseMinorStrict(MoneyService.firstPresentValue(closing, ['gross_amount_minor']), 'gross_amount_minor')) {
       var errClose = new Error('🛑 報表金額不一致：封存明細加總 (' + ledgerGrossMinor + ' minor) 與月結單總餐費 (' + closing.gross_amount_minor + ' minor) 不符合！');
       errClose.code = 'CLOSING_GROSS_MISMATCH';
       throw errClose;
@@ -261,8 +249,8 @@ var ReportService = (function() {
 
     fSums.forEach(function(fs) {
       var source = fs.funding_source;
-      var amt = MoneyService.parseMinorStrict(fs.settlement_total_minor || fs.final_amount_minor || 0, 'settlement_total_minor/final_amount_minor');
-      var resid = MoneyService.parseMinorStrict(fs.residual_adjustment_minor || 0, 'residual_adjustment_minor');
+      var amt = MoneyService.parseMinorStrict(MoneyService.firstPresentValue(fs, ['settlement_total_minor', 'final_amount_minor']), 'settlement_total_minor/final_amount_minor');
+      var resid = MoneyService.parseMinorStrict(MoneyService.firstPresentValue(fs, ['residual_adjustment_minor'], 0), 'residual_adjustment_minor', { allowNegative: true });
       
       residualMinor += resid;
       
@@ -277,14 +265,14 @@ var ReportService = (function() {
     var allocSums = {};
     allocs.forEach(function(al) {
       var src = al.funding_source;
-      var amt = MoneyService.parseMinorStrict(al.settlement_amount_minor || al.final_amount_minor || 0, 'settlement_amount_minor/final_amount_minor');
+      var amt = MoneyService.parseMinorStrict(MoneyService.firstPresentValue(al, ['settlement_amount_minor', 'final_amount_minor']), 'settlement_amount_minor/final_amount_minor');
       allocSums[src] = (allocSums[src] || 0) + amt;
     });
 
     var summarySums = {};
     fSums.forEach(function(fs) {
       var src = fs.funding_source;
-      var amt = MoneyService.parseMinorStrict(fs.settlement_total_minor || fs.final_amount_minor || 0, 'settlement_total_minor/final_amount_minor');
+      var amt = MoneyService.parseMinorStrict(MoneyService.firstPresentValue(fs, ['settlement_total_minor', 'final_amount_minor']), 'settlement_total_minor/final_amount_minor');
       summarySums[src] = (summarySums[src] || 0) + amt;
     });
 
@@ -333,8 +321,8 @@ var ReportService = (function() {
       fundingRows.push({
         funding_source: sourceLabel,
         meal_count: parseInt(fs.meal_count, 10) || 0,
-        gross_amount: MoneyService.minorToYuan(fs.gross_amount_minor || 0),
-        final_amount: MoneyService.minorToYuan(fs.settlement_total_minor || fs.final_amount_minor || 0)
+        gross_amount: MoneyService.minorToYuan(MoneyService.firstPresentValue(fs, ['gross_amount_minor'], 0)),
+        final_amount: MoneyService.minorToYuan(MoneyService.firstPresentValue(fs, ['settlement_total_minor', 'final_amount_minor']))
       });
     });
 
@@ -476,10 +464,9 @@ var ReportService = (function() {
       var pdfFile = outputFolder.createFile(blob);
       return pdfFile;
     } finally {
-      try {
-        tempFile.setTrashed(true);
-      } catch (e) {
-        // 防止清理錯誤掩蓋主要錯誤
+      tempFile.setTrashed(true);
+      if (!tempFile.isTrashed()) {
+        throw new Error('🛑 暫存 HTML 檔案清理失敗，未被置入垃圾桶！');
       }
     }
   }
@@ -555,9 +542,10 @@ var ReportService = (function() {
       return pdfFile;
     } finally {
       if (copyFile) {
-        try {
-          copyFile.setTrashed(true);
-        } catch (e) {}
+        copyFile.setTrashed(true);
+        if (!copyFile.isTrashed()) {
+          throw new Error('🛑 暫存 Docs 副本清理失敗，未被置入垃圾桶！');
+        }
       }
     }
   }
@@ -624,9 +612,10 @@ var ReportService = (function() {
       return pdfFile;
     } finally {
       if (copyFile) {
-        try {
-          copyFile.setTrashed(true);
-        } catch (e) {}
+        copyFile.setTrashed(true);
+        if (!copyFile.isTrashed()) {
+          throw new Error('🛑 暫存 Sheets 副本清理失敗，未被置入垃圾桶！');
+        }
       }
     }
   }

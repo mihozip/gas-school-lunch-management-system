@@ -9,8 +9,14 @@ var MoneyService = (function() {
   var SAFE_MIN = Number.MIN_SAFE_INTEGER || -9007199254740991;
 
   function getMoneyScale() {
-    var scale = Config.getSystemConfig('MONEY_SCALE', '2');
-    return scale !== undefined && scale !== null ? parseInt(scale, 10) : 2;
+    var scaleVal = Config.getSystemConfig('MONEY_SCALE', '2');
+    var scale = Number(scaleVal);
+    if (!Number.isFinite(scale) || !Number.isInteger(scale) || scale < 0) {
+      var err = new Error('🛑 財務錯誤：MONEY_SCALE 配置無效，必須為非負整數，實際得到：' + scaleVal);
+      err.code = 'MONEY_SCALE_INVALID';
+      throw err;
+    }
+    return scale;
   }
 
   function getRateScale() {
@@ -164,7 +170,7 @@ var MoneyService = (function() {
     var pol = policy || Config.getSystemConfig('ROUNDING_RESIDUAL_POLICY', 'SELF_PAY');
     
     // 1. 計算目前已進位後之總和
-    var currentSum = sumMinorAmounts(allocations.map(function(x) { return x.final_amount_minor || 0; }));
+    var currentSum = sumMinorAmounts(allocations.map(function(x) { return firstPresentValue(x, ['final_amount_minor'], 0); }));
     var residual = totalMinor - currentSum;
     
     if (residual === 0) return; // 無尾差
@@ -174,7 +180,7 @@ var MoneyService = (function() {
       var target = allocations.filter(function(x) { return x.funding_source === 'self_pay'; })[0];
       if (target) {
         target.final_amount_minor += residual;
-        target.residual_adjustment_minor = (target.residual_adjustment_minor || 0) + residual;
+        target.residual_adjustment_minor = firstPresentValue(target, ['residual_adjustment_minor'], 0) + residual;
       } else {
         // 若無自付列，回退至 primary funder 承擔
         fallbackToPrimary(allocations, residual);
@@ -188,7 +194,7 @@ var MoneyService = (function() {
       var target = allocations.filter(function(x) { return x.funding_source === src; })[0];
       if (target) {
         target.final_amount_minor += residual;
-        target.residual_adjustment_minor = (target.residual_adjustment_minor || 0) + residual;
+        target.residual_adjustment_minor = firstPresentValue(target, ['residual_adjustment_minor'], 0) + residual;
       } else {
         fallbackToPrimary(allocations, residual);
       }
@@ -249,7 +255,7 @@ var MoneyService = (function() {
   function calculateSettlementResidual(totalSettlementMinor, allocations, policy, designatedSource) {
     var pol = policy || Config.getSystemConfig('ROUNDING_RESIDUAL_POLICY', 'SELF_PAY');
     
-    var currentSum = sumMinorAmounts(allocations.map(function(x) { return x.settlement_amount_minor || 0; }));
+    var currentSum = sumMinorAmounts(allocations.map(function(x) { return firstPresentValue(x, ['settlement_amount_minor'], 0); }));
     var residual = totalSettlementMinor - currentSum;
     
     if (residual === 0) return;
@@ -258,7 +264,7 @@ var MoneyService = (function() {
       var target = allocations.filter(function(x) { return x.funding_source === 'self_pay'; })[0];
       if (target) {
         target.settlement_amount_minor += residual;
-        target.settlement_residual_minor = (target.settlement_residual_minor || 0) + residual;
+        target.settlement_residual_minor = firstPresentValue(target, ['settlement_residual_minor'], 0) + residual;
       } else {
         fallbackSettlementToPrimary(allocations, residual);
       }
@@ -269,7 +275,7 @@ var MoneyService = (function() {
       var target = allocations.filter(function(x) { return x.funding_source === src; })[0];
       if (target) {
         target.settlement_amount_minor += residual;
-        target.settlement_residual_minor = (target.settlement_residual_minor || 0) + residual;
+        target.settlement_residual_minor = firstPresentValue(target, ['settlement_residual_minor'], 0) + residual;
       } else {
         fallbackSettlementToPrimary(allocations, residual);
       }
@@ -295,7 +301,7 @@ var MoneyService = (function() {
         var targetIndex = i % list.length;
         var targetAlloc = list[targetIndex].alloc;
         targetAlloc.settlement_amount_minor += step;
-        targetAlloc.settlement_residual_minor = (targetAlloc.settlement_residual_minor || 0) + step;
+        targetAlloc.settlement_residual_minor = firstPresentValue(targetAlloc, ['settlement_residual_minor'], 0) + step;
       }
     } else {
       fallbackSettlementToPrimary(allocations, residual);
@@ -315,19 +321,19 @@ var MoneyService = (function() {
       var target = allocations.filter(function(x) { return x.funding_source === priority[i]; })[0];
       if (target) {
         target.settlement_amount_minor += residual;
-        target.settlement_residual_minor = (target.settlement_residual_minor || 0) + residual;
+        target.settlement_residual_minor = firstPresentValue(target, ['settlement_residual_minor'], 0) + residual;
         return;
       }
     }
     if (allocations.length > 0) {
       allocations[0].settlement_amount_minor += residual;
-      allocations[0].settlement_residual_minor = (allocations[0].settlement_residual_minor || 0) + residual;
+      allocations[0].settlement_residual_minor = firstPresentValue(allocations[0], ['settlement_residual_minor'], 0) + residual;
     }
   }
 
   function reconcileCalculationAndSettlement(allocations, grossCalcMinor, grossSetMinor) {
-    var calcSum = sumMinorAmounts(allocations.map(function(x) { return x.calculation_amount_minor || 0; }));
-    var setSum = sumMinorAmounts(allocations.map(function(x) { return x.settlement_amount_minor || 0; }));
+    var calcSum = sumMinorAmounts(allocations.map(function(x) { return firstPresentValue(x, ['calculation_amount_minor'], 0); }));
+    var setSum = sumMinorAmounts(allocations.map(function(x) { return firstPresentValue(x, ['settlement_amount_minor'], 0); }));
     
     if (calcSum !== grossCalcMinor) return { valid: false, reason: '計算分攤總額 ($' + calcSum + ') 不等於 Gross 計算總額 ($' + grossCalcMinor + ')' };
     if (setSum !== grossSetMinor) return { valid: false, reason: '結算分攤總額 ($' + setSum + ') 不等於 Gross 結算總額 ($' + grossSetMinor + ')' };
@@ -348,14 +354,14 @@ var MoneyService = (function() {
       var target = allocations.filter(function(x) { return x.funding_source === priority[i]; })[0];
       if (target) {
         target.final_amount_minor += residual;
-        target.residual_adjustment_minor = (target.residual_adjustment_minor || 0) + residual;
+        target.residual_adjustment_minor = firstPresentValue(target, ['residual_adjustment_minor'], 0) + residual;
         return;
       }
     }
     // 萬一都沒有，直接灌在第一筆
     if (allocations.length > 0) {
       allocations[0].final_amount_minor += residual;
-      allocations[0].residual_adjustment_minor = (allocations[0].residual_adjustment_minor || 0) + residual;
+      allocations[0].residual_adjustment_minor = firstPresentValue(allocations[0], ['residual_adjustment_minor'], 0) + residual;
     }
   }
 
@@ -377,19 +383,34 @@ var MoneyService = (function() {
    * 嚴格解析 Minor Units 整數
    * @param {any} value 輸入值
    * @param {string} fieldName 欄位名稱
+   * @param {object} options 額外選項（例如 allowNegative）
    * @return {number} 整數 Minor Units
    */
-  function parseMinorStrict(value, fieldName) {
+  function parseMinorStrict(value, fieldName, options) {
+    var opts = options || {};
+    var allowNegative = opts.allowNegative === true;
+    
     if (value === undefined || value === null || value === '') {
-      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 缺少數值。');
+      var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 缺少數值。');
+      err.code = 'MONEY_MISSING_VALUE';
+      throw err;
     }
     var num = Number(value);
     if (!Number.isFinite(num) || !Number.isInteger(num)) {
-      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為整數 Minor Units，拒絕：' + value);
+      var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為整數 Minor Units，拒絕：' + value);
+      err.code = 'MONEY_INVALID_INTEGER';
+      throw err;
     }
     var str = String(value).trim();
     if (!/^-?\d+$/.test(str)) {
-      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為整數 Minor Units 格式，拒絕：' + value);
+      var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為整數 Minor Units 格式，拒絕：' + value);
+      err.code = 'MONEY_INVALID_INTEGER_FORMAT';
+      throw err;
+    }
+    if (!allowNegative && num < 0) {
+      var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 不允許負數金額，拒絕：' + value);
+      err.code = 'MONEY_NEGATIVE_NOT_ALLOWED';
+      throw err;
     }
     validateMinorAmount(num);
     return num;
@@ -403,21 +424,40 @@ var MoneyService = (function() {
    */
   function yuanToMinorStrict(value, fieldName) {
     if (value === undefined || value === null || value === '') {
-      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 缺少數值。');
-    }
-    var num = Number(value);
-    if (!Number.isFinite(num)) {
-      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為有效數值，拒絕：' + value);
+      var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 缺少數值。');
+      err.code = 'MONEY_MISSING_VALUE';
+      throw err;
     }
     
-    var str = String(value).trim().replace(/,/g, '');
+    var str = String(value).trim();
+    if (!/^-?\d+(\.\d+)?$/.test(str)) {
+      var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為標準十進位格式，拒絕：' + value);
+      err.code = 'MONEY_INVALID_DECIMAL';
+      throw err;
+    }
+    
+    var num = Number(str);
+    if (!Number.isFinite(num)) {
+      var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為有效數值，拒絕：' + value);
+      err.code = 'MONEY_INVALID_DECIMAL';
+      throw err;
+    }
+    
+    if (num < 0) {
+      var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 不允許負數金額，拒絕：' + value);
+      err.code = 'MONEY_NEGATIVE_NOT_ALLOWED';
+      throw err;
+    }
+    
     var dotIdx = str.indexOf('.');
     if (dotIdx !== -1) {
       var fraction = str.substring(dotIdx + 1);
       var cleanFraction = fraction.replace(/0+$/, '');
       var scale = getMoneyScale();
       if (cleanFraction.length > scale) {
-        throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 金額精度超出範圍，拒絕：' + value);
+        var err = new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 精度超出範圍，拒絕：' + value);
+        err.code = 'MONEY_PRECISION_EXCEEDED';
+        throw err;
       }
     }
     
@@ -426,6 +466,24 @@ var MoneyService = (function() {
     var minor = Math.round(num * factor);
     validateMinorAmount(minor);
     return minor;
+  }
+
+  /**
+   * 選擇第一個有值之欄位，若皆缺少則回傳 defaultValue
+   * @param {object} record 物件資料
+   * @param {string[]} keys 欄位鍵值陣列
+   * @param {any} defaultValue 預設值
+   * @return {any} 首個有效值或預設值
+   */
+  function firstPresentValue(record, keys, defaultValue) {
+    if (!record) return defaultValue;
+    for (var i = 0; i < keys.length; i++) {
+      var val = record[keys[i]];
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        return val;
+      }
+    }
+    return defaultValue;
   }
 
   return {
@@ -448,6 +506,7 @@ var MoneyService = (function() {
     reconcileCalculationAndSettlement: reconcileCalculationAndSettlement,
     formatSettlementAmount: formatSettlementAmount,
     parseMinorStrict: parseMinorStrict,
-    yuanToMinorStrict: yuanToMinorStrict
+    yuanToMinorStrict: yuanToMinorStrict,
+    firstPresentValue: firstPresentValue
   };
 })();

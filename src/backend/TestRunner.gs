@@ -127,6 +127,15 @@ var TestRunner = (function() {
     return parent.createFolder(name);
   }
 
+  function assertTrashed(file, name) {
+    if (file) {
+      file.setTrashed(true);
+      if (!file.isTrashed()) {
+        throw new Error('🛑 檔案清理失敗，未被置入垃圾桶：' + name + ' (' + file.getId() + ')');
+      }
+    }
+  }
+
   /**
    * 執行全套 19 個測試
    */
@@ -372,9 +381,13 @@ var TestRunner = (function() {
 
     runTest('T13', '實際呼叫 Docs Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'DOCS', false, true, true, false, true, function() {
       var docId = Config.getProperty('TEST_TEMPLATE_DOC_ID');
-      var closingId = 'CLOSE_TEST_T13';
-      var templateId = 'TMP_TEST_T13';
       var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var closingId = 'CLOSE_T13_' + suffix;
+      var templateId = 'TMP_T13_' + suffix;
+      var artL = 'ART_T13_L_' + suffix;
+      var artA = 'ART_T13_A_' + suffix;
+      var artS = 'ART_T13_S_' + suffix;
       
       var res;
       var pdfFile;
@@ -417,7 +430,7 @@ var TestRunner = (function() {
 
         // 3. 建立必要 artifacts
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T13_L',
+          artifact_id: artL,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'dailyMealLedger_export',
@@ -427,7 +440,7 @@ var TestRunner = (function() {
         });
 
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T13_A',
+          artifact_id: artA,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'fundingAllocationLedger_export',
@@ -437,7 +450,7 @@ var TestRunner = (function() {
         });
 
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T13_S',
+          artifact_id: artS,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'monthlyFundingSummary_export',
@@ -488,23 +501,23 @@ var TestRunner = (function() {
 
       } finally {
         if (pdfFile) {
-          try { pdfFile.setTrashed(true); } catch(e) {}
+          assertTrashed(pdfFile, 'pdfFile');
         }
         if (fLedger) {
-          try { fLedger.setTrashed(true); } catch(e) {}
+          assertTrashed(fLedger, 'fLedger');
         }
         if (fAlloc) {
-          try { fAlloc.setTrashed(true); } catch(e) {}
+          assertTrashed(fAlloc, 'fAlloc');
         }
         if (fSummary) {
-          try { fSummary.setTrashed(true); } catch(e) {}
+          assertTrashed(fSummary, 'fSummary');
         }
         // Clean up fixtures
         SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
         SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T13_L');
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T13_A');
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T13_S');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS);
       }
 
       var expectedStr = 'true,application/pdf,true,true,true';
@@ -514,9 +527,13 @@ var TestRunner = (function() {
 
     runTest('T14', '實際呼叫 Sheets Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'SHEETS', false, true, false, true, true, function() {
       var sheetId = Config.getProperty('TEST_TEMPLATE_SHEET_ID');
-      var closingId = 'CLOSE_TEST_T14';
-      var templateId = 'TMP_TEST_T14';
       var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var closingId = 'CLOSE_T14_' + suffix;
+      var templateId = 'TMP_T14_' + suffix;
+      var artL = 'ART_T14_L_' + suffix;
+      var artA = 'ART_T14_A_' + suffix;
+      var artS = 'ART_T14_S_' + suffix;
       
       var res;
       var pdfFile;
@@ -559,7 +576,7 @@ var TestRunner = (function() {
 
         // 3. 建立必要 artifacts
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T14_L',
+          artifact_id: artL,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'dailyMealLedger_export',
@@ -569,7 +586,7 @@ var TestRunner = (function() {
         });
 
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T14_A',
+          artifact_id: artA,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'fundingAllocationLedger_export',
@@ -579,7 +596,7 @@ var TestRunner = (function() {
         });
 
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T14_S',
+          artifact_id: artS,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'monthlyFundingSummary_export',
@@ -630,23 +647,23 @@ var TestRunner = (function() {
 
       } finally {
         if (pdfFile) {
-          try { pdfFile.setTrashed(true); } catch(e) {}
+          assertTrashed(pdfFile, 'pdfFile');
         }
         if (fLedger) {
-          try { fLedger.setTrashed(true); } catch(e) {}
+          assertTrashed(fLedger, 'fLedger');
         }
         if (fAlloc) {
-          try { fAlloc.setTrashed(true); } catch(e) {}
+          assertTrashed(fAlloc, 'fAlloc');
         }
         if (fSummary) {
-          try { fSummary.setTrashed(true); } catch(e) {}
+          assertTrashed(fSummary, 'fSummary');
         }
         // Clean up fixtures
         SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
         SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T14_L');
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T14_A');
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T14_S');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS);
       }
 
       var expectedStr = 'true,application/pdf,true,true,true';
@@ -724,8 +741,13 @@ var TestRunner = (function() {
     });
 
     runTest('T18', 'PUBLIC_SUMMARY 隱私級別去識別化與金額不一致驗證', ['MonthClosings', 'ClosingArtifacts'], 'UNIT', false, false, false, false, false, function() {
-      var closingId = 'CLOSE_TEST_T18';
       var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var closingId = 'CLOSE_T18_' + suffix;
+      var artL = 'ART_T18_L_' + suffix;
+      var artA = 'ART_T18_A_' + suffix;
+      var artS = 'ART_T18_S_' + suffix;
+      
       var model;
       var triggered = false;
       var errorCode = '';
@@ -759,7 +781,7 @@ var TestRunner = (function() {
 
         // 3. 建立必要 artifacts
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T18_L',
+          artifact_id: artL,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'dailyMealLedger_export',
@@ -769,7 +791,7 @@ var TestRunner = (function() {
         });
 
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T18_A',
+          artifact_id: artA,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'fundingAllocationLedger_export',
@@ -779,7 +801,7 @@ var TestRunner = (function() {
         });
 
         SheetRepository.appendRecord('ClosingArtifacts', {
-          artifact_id: 'ART_T18_S',
+          artifact_id: artS,
           closing_id: closingId,
           year_month: '2026-09',
           artifact_type: 'monthlyFundingSummary_export',
@@ -803,19 +825,19 @@ var TestRunner = (function() {
 
       } finally {
         if (fLedger) {
-          try { fLedger.setTrashed(true); } catch(e) {}
+          assertTrashed(fLedger, 'fLedger');
         }
         if (fAlloc) {
-          try { fAlloc.setTrashed(true); } catch(e) {}
+          assertTrashed(fAlloc, 'fAlloc');
         }
         if (fSummary) {
-          try { fSummary.setTrashed(true); } catch(e) {}
+          assertTrashed(fSummary, 'fSummary');
         }
         // 清理 fixtures
         SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T18_L');
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T18_A');
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', 'ART_T18_S');
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA);
+        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS);
       }
       
       var name = model && model.DAILY_ROWS && model.DAILY_ROWS[0] ? model.DAILY_ROWS[0].student_name : '';

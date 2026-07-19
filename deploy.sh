@@ -79,6 +79,22 @@ if [ "$DRY_RUN" = true ]; then
   echo "--------------------------------------------------"
   echo "${FILES_TO_PUSH}"
   echo "--------------------------------------------------"
+  echo "🔍 [DRY RUN] 模擬執行 clasp 指令清單："
+  SCRIPT_ID_DRY=""
+  if [ -f ".clasp.json" ]; then
+    SCRIPT_ID_DRY=$(node -e "try { console.log(require('./.clasp.json').scriptId); } catch(e) { console.log(''); }")
+  fi
+  if [ -z "$SCRIPT_ID_DRY" ] && [ -n "$SCRIPT_ID_PARAM" ]; then
+    SCRIPT_ID_DRY="$SCRIPT_ID_PARAM"
+  fi
+  if [ -z "$SCRIPT_ID_DRY" ] && [ "$CREATE_IF_MISSING" = true ]; then
+    echo "  -> (建立新專案) clasp create-script --title \"學校午餐管理系統-${ENV_UPPER}-YYYYMMDD_HHMMSS\" --type standalone"
+  fi
+  echo "  -> clasp push"
+  echo "  -> clasp version \"Auto-deployed by deploy.sh at YYYY-MM-DD HH:mm:ss\""
+  if [ "$NO_DEPLOY" = false ]; then
+    echo "  -> clasp deploy / redeploy"
+  fi
   echo "🔍 [DRY RUN] 模擬部署結束。本機檔案無任何變更，未建立任何 Google 資源。"
   exit 0
 fi
@@ -141,7 +157,14 @@ if [ -z "$SCRIPT_ID" ]; then
   rm -rf temp_clasp_create
   mkdir -p temp_clasp_create
   
-  if ! CREATE_OUT=$(npx clasp create --title "${TITLE}" --type webapp --rootDir "./temp_clasp_create" 2>&1); then
+  if ! CREATE_OUT=$(
+    (
+      cd temp_clasp_create
+      ../node_modules/.bin/clasp create-script \
+        --title "${TITLE}" \
+        --type standalone
+    ) 2>&1
+  ); then
     echo "🛑 錯誤 [CREATE_SCRIPT_FAILED]：建立專案失敗！"
     echo "錯誤細節: ${CREATE_OUT}"
     if [[ "$CREATE_OUT" == *"User has not enabled the Apps Script API"* || "$CREATE_OUT" == *"enable"* ]]; then

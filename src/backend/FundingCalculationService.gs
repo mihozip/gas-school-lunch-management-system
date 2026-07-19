@@ -376,9 +376,9 @@ var FundingCalculationService = (function() {
       g.calculated_amount_minor += a.rounded_amount_minor;
       g.residual_adjustment_minor += a.residual_adjustment_minor;
       g.final_amount_minor += a.final_amount_minor;
-      g.calculation_total_minor += a.calculation_amount_minor || 0;
-      g.settlement_total_minor += a.settlement_amount_minor || 0;
-      g.settlement_residual_minor += a.settlement_residual_minor || 0;
+      g.calculation_total_minor += MoneyService.firstPresentValue(a, ['calculation_amount_minor'], 0);
+      g.settlement_total_minor += MoneyService.firstPresentValue(a, ['settlement_amount_minor'], 0);
+      g.settlement_residual_minor += MoneyService.firstPresentValue(a, ['settlement_residual_minor'], 0);
     });
 
     var result = [];
@@ -446,11 +446,11 @@ var FundingCalculationService = (function() {
                dietaryType === m.dietary_type;
       });
 
-      var townshipSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'township'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
-      var countySet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'county'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
-      var schoolSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'school'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
-      var selfPaySet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'self_pay'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
-      var otherSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'other'; }).map(function(x) { return x.settlement_amount_minor || 0; }));
+      var townshipSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'township'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
+      var countySet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'county'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
+      var schoolSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'school'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
+      var selfPaySet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'self_pay'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
+      var otherSet = MoneyService.sumMinorAmounts(filtered.filter(function(x) { return x.funding_source === 'other'; }).map(function(x) { return MoneyService.firstPresentValue(x, ['settlement_amount_minor'], 0); }));
       
       var totalSetMinor = townshipSet + countySet + schoolSet + selfPaySet + otherSet;
 

@@ -3,19 +3,6 @@
  * 系統自動化測試套件 - 19 個真實測試情境
  */
 
-// 動態為 Config 物件擴充 isTestMode 狀態監控（因 Config.gs return block 無此屬性）
-(function() {
-  var _originalSetTestMode = Config.setTestMode;
-  var _isTestMode = false;
-  Config.setTestMode = function(enabled) {
-    _isTestMode = enabled;
-    _originalSetTestMode(enabled);
-  };
-  Config.isTestMode = function() {
-    return _isTestMode;
-  };
-})();
-
 var TestRunner = (function() {
 
   /**
@@ -581,6 +568,106 @@ var TestRunner = (function() {
           triggeredNeg6 = true;
           errCodeNeg6 = e.code || e.message;
         }
+        // 負向測試 7: fixed_amount = 100 > meal_price_snapshot = 60 → FUNDING_TOTAL_EXCEEDS_GROSS
+        var categoryExceedId = 'CAT_T9_EXCEED_' + suffix;
+        var ruleExceedId = 'RULE_EXCEED_T9_' + suffix;
+        var triggeredNeg7 = false;
+        var errCodeNeg7 = '';
+        try {
+          createFixtureCategory(categoryExceedId, 'GENERAL_TEST_EXCEED_' + suffix);
+          createFixtureRule(ruleExceedId, categoryExceedId, 'township', 'fixed_amount', 0, '100');
+
+          var ledgerNeg7 = {
+            ledger_id: 'L_TEST_NEG7',
+            date: '2026-09-02',
+            student_id: 'S_STU_001',
+            class_id: 'C_CLS_001',
+            subsidy_category_id: categoryExceedId,
+            meal_price_snapshot: '60.00'
+          };
+          FundingCalculationService.calculateFundingForLedgerRow(ledgerNeg7, 'RUN_FTEST_NEG7', 1, []);
+        } catch (e) {
+          triggeredNeg7 = true;
+          errCodeNeg7 = e.code || e.message;
+        }
+
+        // 負向測試 8: rulesOverride 在 testMode=true 時正常計算
+        var triggeredNeg8 = false;
+        var neg8ResultOk = false;
+        try {
+          var overrideRules = [
+            {
+              rule_id: ruleTownId,
+              subsidy_category_id: categoryId,
+              funding_source: 'township',
+              calculation_type: 'percentage',
+              subsidy_rate: 5000,
+              subsidy_amount: 0,
+              effective_start_date: '2026-01-01',
+              effective_end_date: '2026-12-31',
+              enabled: true
+            },
+            {
+              rule_id: ruleCountyId,
+              subsidy_category_id: categoryId,
+              funding_source: 'county',
+              calculation_type: 'percentage',
+              subsidy_rate: 5000,
+              subsidy_amount: 0,
+              effective_start_date: '2026-01-01',
+              effective_end_date: '2026-12-31',
+              enabled: true
+            }
+          ];
+          var overrideLedger = {
+            ledger_id: 'L_TEST_NEG8',
+            date: '2026-09-02',
+            student_id: 'S_STU_001',
+            class_id: 'C_CLS_001',
+            subsidy_category_id: categoryId,
+            meal_price_snapshot: '60.00',
+            calculation_run_id: 'RUN_NEG8'
+          };
+          var neg8Res = FundingCalculationService.calculateFundingForLedgerRow(overrideLedger, 'RUN_FTEST_NEG8', 1, [], { rulesOverride: overrideRules });
+          neg8ResultOk = (neg8Res.length === 2);
+        } catch (e) {
+          triggeredNeg8 = true;
+        }
+
+        // 負向測試 9: rulesOverride 在 testMode=false 時 → TEST_OVERRIDE_NOT_ALLOWED
+        var triggeredNeg9 = false;
+        var errCodeNeg9 = '';
+        try {
+          Config.setTestMode(false);
+          var overrideRules9 = [
+            {
+              rule_id: ruleTownId,
+              subsidy_category_id: categoryId,
+              funding_source: 'township',
+              calculation_type: 'percentage',
+              subsidy_rate: 5000,
+              subsidy_amount: 0,
+              effective_start_date: '2026-01-01',
+              effective_end_date: '2026-12-31',
+              enabled: true
+            }
+          ];
+          var overrideLedger9 = {
+            ledger_id: 'L_TEST_NEG9',
+            date: '2026-09-02',
+            student_id: 'S_STU_001',
+            class_id: 'C_CLS_001',
+            subsidy_category_id: categoryId,
+            meal_price_snapshot: '60.00',
+            calculation_run_id: 'RUN_NEG9'
+          };
+          FundingCalculationService.calculateFundingForLedgerRow(overrideLedger9, 'RUN_FTEST_NEG9', 1, [], { rulesOverride: overrideRules9 });
+        } catch (e) {
+          triggeredNeg9 = true;
+          errCodeNeg9 = e.code || e.message;
+        } finally {
+          Config.setTestMode(true);
+        }
 
         var actualStr = townshipSum + ',' + countySum + ',' + 
                         triggeredNeg1 + ',' + errCodeNeg1 + ',' + 
@@ -588,8 +675,11 @@ var TestRunner = (function() {
                         triggeredNeg3 + ',' + errCodeNeg3 + ',' +
                         triggeredNeg4 + ',' + errCodeNeg4 + ',' +
                         triggeredNeg5 + ',' + errCodeNeg5 + ',' +
-                        triggeredNeg6 + ',' + errCodeNeg6;
-        var expectedStr = '3000,3000,true,MONEY_INVALID_DECIMAL,true,MONEY_INVALID_DECIMAL,true,SUBSIDY_RATE_INVALID,true,SUBSIDY_RATE_MISSING,true,SUBSIDY_AMOUNT_MISSING,true,MONEY_INVALID_DECIMAL';
+                        triggeredNeg6 + ',' + errCodeNeg6 + ',' +
+                        triggeredNeg7 + ',' + errCodeNeg7 + ',' +
+                        triggeredNeg8 + ',' + neg8ResultOk + ',' +
+                        triggeredNeg9 + ',' + errCodeNeg9;
+        var expectedStr = '3000,3000,true,MONEY_INVALID_DECIMAL,true,MONEY_INVALID_DECIMAL,true,SUBSIDY_RATE_INVALID,true,SUBSIDY_RATE_MISSING,true,SUBSIDY_AMOUNT_MISSING,true,MONEY_INVALID_DECIMAL,true,FUNDING_TOTAL_EXCEEDS_GROSS,false,true,true,TEST_OVERRIDE_NOT_ALLOWED';
         return { expected: expectedStr, actual: actualStr };
       } finally {
         var cleanupErrors = [];
@@ -652,22 +742,15 @@ var TestRunner = (function() {
       return { expected: true, actual: triggered };
     });
 
-    runTest('T12', '大數據量運算：1,000名學生補助計算效能', ['SubsidyCategories', 'SubsidyRules'], 'PERFORMANCE', false, false, false, false, false, function() {
+    runTest('T12', '大數據量運算：1,000名學生補助計算效能', [], 'PERFORMANCE', false, false, false, false, false, function() {
       var testRunId = Utils.generateUUID();
       var suffix = testRunId.substring(0, 8);
       var categoryId = 'CAT_T12_' + suffix;
-      var ruleTownId = 'RULE_TOWN_T12_' + suffix;
-      var ruleCountyId = 'RULE_COUNTY_T12_' + suffix;
 
-      try {
-        SheetRepository.appendRecord('SubsidyCategories', {
-          subsidy_category_id: categoryId,
-          category_name: 'GENERAL_TEST_PERF_' + suffix,
-          description: 'T12 Test Category'
-        });
-
-        SheetRepository.appendRecord('SubsidyRules', {
-          rule_id: ruleTownId,
+      // 純記憶體規則，不建立試算表 fixture
+      var rules = [
+        {
+          rule_id: 'RULE_TOWN_T12_' + suffix,
           subsidy_category_id: categoryId,
           funding_source: 'township',
           calculation_type: 'percentage',
@@ -676,10 +759,9 @@ var TestRunner = (function() {
           effective_start_date: '2026-01-01',
           effective_end_date: '2026-12-31',
           enabled: true
-        });
-
-        SheetRepository.appendRecord('SubsidyRules', {
-          rule_id: ruleCountyId,
+        },
+        {
+          rule_id: 'RULE_COUNTY_T12_' + suffix,
           subsidy_category_id: categoryId,
           funding_source: 'county',
           calculation_type: 'percentage',
@@ -688,50 +770,61 @@ var TestRunner = (function() {
           effective_start_date: '2026-01-01',
           effective_end_date: '2026-12-31',
           enabled: true
-        });
-
-        // 立即驗證 findById
-        var r1 = SheetRepository.findById('SubsidyRules', 'rule_id', ruleTownId);
-        var r2 = SheetRepository.findById('SubsidyRules', 'rule_id', ruleCountyId);
-        if (!r1 || !r2) {
-          throw new Error('🛑 T12 測試規則建立後未成功存入');
         }
+      ];
 
-        // 僅讀取與取得規則一次
-        var rules = FundingCalculationService.getApplicableFundingRules(categoryId, '2026-09-02');
+      var options = { rulesOverride: rules };
 
-        var pStart = new Date().getTime();
-        var ledgerRow = {
-          ledger_id: 'L_PERF_',
-          date: '2026-09-02',
-          student_id: 'S_PERF_',
-          class_id: 'C_PERF_',
-          subsidy_category_id: categoryId,
-          meal_price_snapshot: '60.00'
-        };
-        var issues = [];
-        var options = { rulesOverride: rules };
-        for (var k = 0; k < 1000; k++) {
-          ledgerRow.ledger_id = 'L_PERF_' + k;
-          FundingCalculationService.calculateFundingForLedgerRow(ledgerRow, 'RUN_PERF', 1, issues, options);
-        }
-        var pDuration = new Date().getTime() - pStart;
-        var throughput = Math.round(1000 / (pDuration / 1000));
-        report.performance.funding_calculation_1000_rows_ms = pDuration;
-        report.performance.funding_calculation_throughput_fps = throughput;
-        return { expected: true, actual: pDuration < 15000 };
-      } finally {
-        SheetRepository.deleteRecordById('SubsidyRules', 'rule_id', ruleTownId);
-        SheetRepository.deleteRecordById('SubsidyRules', 'rule_id', ruleCountyId);
-        SheetRepository.deleteRecordById('SubsidyCategories', 'subsidy_category_id', categoryId);
+      var ledgerRow = {
+        ledger_id: 'L_PERF_',
+        date: '2026-09-02',
+        student_id: 'S_PERF_',
+        class_id: 'C_PERF_',
+        subsidy_category_id: categoryId,
+        meal_price_snapshot: '60.00',
+        calculation_run_id: 'RUN_PERF'
+      };
 
-        // 驗證清理完成後 findById 回傳 null
-        var checkDel1 = SheetRepository.findById('SubsidyRules', 'rule_id', ruleTownId);
-        var checkDel2 = SheetRepository.findById('SubsidyRules', 'rule_id', ruleCountyId);
-        if (checkDel1 || checkDel2) {
-          throw new Error('🛑 T12 測試規則刪除後仍存在於資料庫中');
-        }
+      var issues = [];
+      var lastRes = null;
+
+      var pStart = new Date().getTime();
+      for (var k = 0; k < 1000; k++) {
+        ledgerRow.ledger_id = 'L_PERF_' + k;
+        lastRes = FundingCalculationService.calculateFundingForLedgerRow(ledgerRow, 'RUN_PERF', 1, issues, options);
       }
+      var pDuration = new Date().getTime() - pStart;
+      var throughput = pDuration > 0 ? Math.round(1000000 / pDuration) : 1000000;
+
+      report.performance.funding_calculation_1000_rows_ms = pDuration;
+      report.performance.funding_calculation_throughput_fps = throughput;
+
+      // 斷言：每次回傳 2 筆 allocations
+      if (!lastRes || lastRes.length !== 2) {
+        throw new Error('🛑 T12 每次計算應回傳 2 筆 allocations，實際：' + (lastRes ? lastRes.length : 'null'));
+      }
+
+      // 斷言：township = 3000, county = 3000
+      var townAlloc = lastRes.filter(function(x) { return x.funding_source === 'township'; })[0];
+      var countyAlloc = lastRes.filter(function(x) { return x.funding_source === 'county'; })[0];
+      if (!townAlloc || townAlloc.final_amount_minor !== 3000) {
+        throw new Error('🛑 T12 township final_amount_minor 預期 3000，實際：' + (townAlloc ? townAlloc.final_amount_minor : 'null'));
+      }
+      if (!countyAlloc || countyAlloc.final_amount_minor !== 3000) {
+        throw new Error('🛑 T12 county final_amount_minor 預期 3000，實際：' + (countyAlloc ? countyAlloc.final_amount_minor : 'null'));
+      }
+
+      // 斷言：issues.length === 0
+      if (issues.length !== 0) {
+        throw new Error('🛑 T12 issues 預期為空，實際：' + issues.length);
+      }
+
+      // 斷言：duration 與 throughput 為有限數值
+      if (!Number.isFinite(pDuration) || !Number.isFinite(throughput)) {
+        throw new Error('🛑 T12 duration 或 throughput 不是有限數值');
+      }
+
+      return { expected: true, actual: pDuration < 15000 };
     });
 
     runTest('T13', '實際呼叫 Docs Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'DOCS', false, true, true, false, true, function() {

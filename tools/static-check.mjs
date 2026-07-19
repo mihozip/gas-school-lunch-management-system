@@ -521,21 +521,37 @@ checkBannedIntegrityRules();
 function checkPreUatIntegrityRules() {
   const runnerPath = 'src/backend/TestRunner.gs';
   const fundingPath = 'src/backend/FundingCalculationService.gs';
+  const configPath = 'src/backend/Config.gs';
   
+  // === Config.gs checks ===
+  if (fs.existsSync(configPath)) {
+    const configContent = fs.readFileSync(configPath, 'utf8');
+    
+    // Config.gs 必須 export getTestMode
+    if (!configContent.includes('getTestMode: getTestMode')) {
+      logError("Config.gs 必須 export getTestMode: getTestMode！");
+    }
+  }
+
   if (fs.existsSync(runnerPath)) {
     const content = fs.readFileSync(runnerPath, 'utf8');
     
-    // 1. TestRunner 對 SubsidyRules 建立 fixture 時，禁止使用 subsidy_rule_id，必須使用 rule_id
+    // 1. TestRunner.gs 禁止出現 monkey-patch Config
+    if (content.includes('Config.setTestMode = function') || content.includes('Config.isTestMode = function')) {
+      logError("TestRunner.gs 禁止 monkey-patch Config.setTestMode 或 Config.isTestMode！必須使用 Config.gs 正式 export 的 getTestMode。");
+    }
+
+    // 2. TestRunner 對 SubsidyRules 建立 fixture 時，禁止使用 subsidy_rule_id，必須使用 rule_id
     if (content.includes("subsidy_rule_id:") && content.includes("appendRecord('SubsidyRules'")) {
       logError("TestRunner.gs 中對 SubsidyRules 建立 fixture 時，禁止使用 subsidy_rule_id，必須使用 rule_id！");
     }
     
-    // 2. TestRunner 對 SubsidyRules 執行 deleteRecordById 時，主鍵必須為 rule_id
+    // 3. TestRunner 對 SubsidyRules 執行 deleteRecordById 時，主鍵必須為 rule_id
     if (content.includes("deleteRecordById('SubsidyRules', 'subsidy_rule_id'")) {
       logError("TestRunner.gs 中對 SubsidyRules 刪除 fixture 時，主鍵必須為 rule_id，禁止使用 subsidy_rule_id！");
     }
 
-    // 3. T9 malformed rate 測試不得與既有相同 funding_source 規則使用同一 subsidy_category_id
+    // 4. T9 malformed rate 測試不得與既有相同 funding_source 規則使用同一 subsidy_category_id
     const t9Match = content.match(/runTest\('T9'[\s\S]*?runTest\('T10'/);
     if (t9Match) {
       if (!t9Match[0].includes("appendRecord('SubsidyRules'") || !t9Match[0].includes("appendRecord('SubsidyCategories'")) {
@@ -544,35 +560,56 @@ function checkPreUatIntegrityRules() {
       if (!t9Match[0].includes("CAT_T9_RATE_") || !t9Match[0].includes("RULE_RATE_T9_")) {
         logError("TestRunner.gs T9 malformed rate 測試必須建立與使用獨立的分類 CAT_T9_RATE_<suffix> 與規則！");
       }
+      // T9 必須包含 FUNDING_TOTAL_EXCEEDS_GROSS 負向測試斷言
+      if (!t9Match[0].includes("FUNDING_TOTAL_EXCEEDS_GROSS")) {
+        logError("TestRunner.gs T9 必須包含 FUNDING_TOTAL_EXCEEDS_GROSS 固定金額超額負向測試斷言！");
+      }
+      // T9 必須包含 TEST_OVERRIDE_NOT_ALLOWED 負向測試斷言
+      if (!t9Match[0].includes("TEST_OVERRIDE_NOT_ALLOWED")) {
+        logError("TestRunner.gs T9 必須包含 TEST_OVERRIDE_NOT_ALLOWED rulesOverride 安全限制負向測試斷言！");
+      }
     }
 
-    // T12 fixture check
+    // T12 checks
     const t12Match = content.match(/runTest\('T12'[\s\S]*?runTest\('T13'/);
-    if (t12Match && (!t12Match[0].includes("appendRecord('SubsidyRules'") || !t12Match[0].includes("appendRecord('SubsidyCategories'"))) {
-      logError("TestRunner.gs T12 測試必須有自己的 enabled 測試規則與分類 fixture！");
-    }
-
-    // T12 performance loop check (avoid repeat sheet repository lookups)
     if (t12Match) {
+      // T12 performance loop check (avoid repeat sheet repository lookups)
       const loopMatch = t12Match[0].match(/for\s*\([\s\S]*?calculateFundingForLedgerRow\(([\s\S]*?)\)[\s\S]*?\}/);
       if (loopMatch && !loopMatch[1].includes("options")) {
         logError("TestRunner.gs T12 效能測試必須傳入 options 以避免在 1000 次迴圈內重複進行試算表 I/O 查詢！");
       }
+
+      // T12 迴圈區塊中禁止出現 SheetRepository / SpreadsheetApp / DriveApp / getApplicableFundingRules
+      const t12LoopBlock = t12Match[0].match(/for\s*\([\s\S]*$/);
+      if (t12LoopBlock) {
+        const bannedInLoop = ['SheetRepository', 'SpreadsheetApp', 'DriveApp', 'getApplicableFundingRules'];
+        bannedInLoop.forEach(keyword => {
+          if (t12LoopBlock[0].includes(keyword)) {
+            logError(`TestRunner.gs T12 迴圈區塊中禁止出現 ${keyword}，必須使用純記憶體 rulesOverride！`);
+          }
+        });
+      }
+
+      // T12 affectedSheets 應為空陣列
+      const t12Header = t12Match[0].match(/runTest\('T12',[^,]*,\s*(\[[^\]]*\])/);
+      if (t12Header && t12Header[1] !== '[]') {
+        logError("TestRunner.gs T12 的 affectedSheets 應為空陣列 []，因為是純記憶體效能測試！");
+      }
     }
 
-    // 2. T10 cleanup check
+    // T10 cleanup check
     const t10Match = content.match(/runTest\('T10'[\s\S]*?runTest\('T11'/);
     if (t10Match && (!t10Match[0].includes("finally") || !t10Match[0].includes("deleteRecordById('MonthClosings'"))) {
       logError("TestRunner.gs T10 測試必須清理 createClosingDraft 產生的 closing_id！");
     }
 
-    // 3. T16 draft template check
+    // T16 draft template check
     const t16Match = content.match(/runTest\('T16'[\s\S]*?runTest\('T17'/);
     if (t16Match && (t16Match[0].includes("list[0]") || t16Match[0].includes("status === 'draft'"))) {
       logError("TestRunner.gs T16 測試禁止使用 list[0] 或狀態為 draft 的既有範本，必須建立自有範本！");
     }
 
-    // 4. T11, T17, T19 banned fixed IDs
+    // T11, T17, T19 banned fixed IDs
     const bannedIds = [
       "'CLOSE_LOCK_TEST'", '"CLOSE_LOCK_TEST"',
       "'CLOSE_TEST_T17'", '"CLOSE_TEST_T17"',
@@ -587,7 +624,7 @@ function checkPreUatIntegrityRules() {
       }
     });
 
-    // 7. T15 PDF parent folder check
+    // T15 PDF parent folder check
     const t15Match = content.match(/runTest\('T15'[\s\S]*?runTest\('T16'/);
     if (t15Match && (!t15Match[0].includes("getParents()") || !t15Match[0].includes("parentMatched"))) {
       logError("TestRunner.gs T15 測試必須驗證產出 PDF 是否存放於 previewsFolder 子資料夾！");
@@ -605,27 +642,53 @@ function checkPreUatIntegrityRules() {
   if (fs.existsSync(fundingPath)) {
     const content = fs.readFileSync(fundingPath, 'utf8');
     
-    // 5. FundingCalculationService meal_price_snapshot parseFloat check
+    // FundingCalculationService meal_price_snapshot parseFloat check
     if (content.includes("parseFloat(ledgerRow.meal_price_snapshot)")) {
       logError("FundingCalculationService.gs 不得對 meal_price_snapshot 使用 parseFloat，必須使用 strict parser！");
     }
     
-    // 6. FundingCalculationService fixed amount yuanToMinor check
+    // FundingCalculationService fixed amount yuanToMinor check
     if (content.includes("MoneyService.yuanToMinor(fixedYuan)")) {
       logError("FundingCalculationService.gs 固定金額不得使用寬鬆 yuanToMinor，必須使用 strict money parser！");
     }
 
-    // 4. FundingCalculationService 禁止 rule.subsidy_amount || '0'
+    // FundingCalculationService 禁止 rule.subsidy_amount || '0'
     if (content.includes("rule.subsidy_amount || '0'") || content.includes('rule.subsidy_amount || "0"')) {
       logError("FundingCalculationService.gs 中禁止使用 rule.subsidy_amount || '0' 作為預設值，必須進行必填與類型校驗！");
     }
 
-    // 5 & 6. percentage / fixed_amount 規則必須有缺值檢查
+    // percentage / fixed_amount 規則必須有缺值檢查
     if (!content.includes("SUBSIDY_RATE_MISSING")) {
       logError("FundingCalculationService.gs 的 percentage 規則必須具備費率缺值檢查 (SUBSIDY_RATE_MISSING)！");
     }
     if (!content.includes("SUBSIDY_AMOUNT_MISSING")) {
       logError("FundingCalculationService.gs 的 fixed_amount 規則必須具備金額缺值檢查 (SUBSIDY_AMOUNT_MISSING)！");
+    }
+
+    // calculateFundingForLedgerRow 函式宣告必須包含 options 參數
+    const funcDecl = content.match(/function\s+calculateFundingForLedgerRow\s*\(([^)]*)\)/);
+    if (funcDecl && !funcDecl[1].includes('options')) {
+      logError("FundingCalculationService.gs 的 calculateFundingForLedgerRow 函式宣告必須包含 options 參數！");
+    }
+
+    // FundingCalculationService 服務端必須實際讀取 options.rulesOverride
+    if (!content.includes("options.rulesOverride")) {
+      logError("FundingCalculationService.gs 必須在服務端實際讀取 options.rulesOverride！");
+    }
+
+    // FundingCalculationService 必須使用 Config.getTestMode() 檢查測試模式
+    if (!content.includes("Config.getTestMode()")) {
+      logError("FundingCalculationService.gs 必須使用 Config.getTestMode() 檢查測試模式！");
+    }
+
+    // FundingCalculationService 必須包含 TEST_OVERRIDE_NOT_ALLOWED 安全限制
+    if (!content.includes("TEST_OVERRIDE_NOT_ALLOWED")) {
+      logError("FundingCalculationService.gs 必須包含 TEST_OVERRIDE_NOT_ALLOWED 安全限制！");
+    }
+
+    // 禁止 FundingCalculationService 出現未定義引用 fixedYuan / grossYuan
+    if (content.includes("fixedYuan") || content.includes("grossYuan")) {
+      logError("FundingCalculationService.gs 中禁止使用未定義的 fixedYuan 或 grossYuan，必須使用 MoneyService.minorToYuan 轉換！");
     }
   }
 

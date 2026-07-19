@@ -44,6 +44,14 @@ var Config = (function() {
   }
 
   /**
+   * 取得目前是否為自動測試模式
+   * @return {boolean} 是否啟用測試模式
+   */
+  function getTestMode() {
+    return isTestMode;
+  }
+
+  /**
    * 取得目前連接的試算表 ID
    * 優先讀取 Script Property DATABASE_SPREADSHEET_ID，若為空則嘗試取得綁定的 active spreadsheet
    * @return {string} Spreadsheet ID
@@ -271,6 +279,7 @@ var Config = (function() {
     clearAllCache: clearAllCache,
     checkRequiredSettings: checkRequiredSettings,
     setTestMode: setTestMode,
+    getTestMode: getTestMode,
     getEnvironment: getEnvironment
   };
 })();

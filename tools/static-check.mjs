@@ -288,7 +288,7 @@ function checkServiceExportsAndCalls() {
       const serviceName = m[1];
       const methodName = m[2];
       
-      const excluded = ['SpreadsheetApp', 'DriveApp', 'Math', 'Date', 'DocumentApp', 'Utilities', 'ScriptApp', 'PropertiesService', 'CacheService', 'Session', 'Object', 'JSON', 'String', 'Number', 'Array', 'console', 'process', 'fs', 'path', 'Utils', 'e'];
+      const excluded = ['SpreadsheetApp', 'DriveApp', 'Math', 'Date', 'DocumentApp', 'Utilities', 'ScriptApp', 'PropertiesService', 'CacheService', 'Session', 'Object', 'JSON', 'String', 'Number', 'Array', 'console', 'process', 'fs', 'path', 'e'];
       if (excluded.includes(serviceName)) return;
 
       if (serviceExports[serviceName]) {

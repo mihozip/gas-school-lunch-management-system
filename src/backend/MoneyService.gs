@@ -373,6 +373,61 @@ var MoneyService = (function() {
     return sum;
   }
 
+  /**
+   * 嚴格解析 Minor Units 整數
+   * @param {any} value 輸入值
+   * @param {string} fieldName 欄位名稱
+   * @return {number} 整數 Minor Units
+   */
+  function parseMinorStrict(value, fieldName) {
+    if (value === undefined || value === null || value === '') {
+      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 缺少數值。');
+    }
+    var num = Number(value);
+    if (!Number.isFinite(num) || !Number.isInteger(num)) {
+      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為整數 Minor Units，拒絕：' + value);
+    }
+    var str = String(value).trim();
+    if (!/^-?\d+$/.test(str)) {
+      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為整數 Minor Units 格式，拒絕：' + value);
+    }
+    validateMinorAmount(num);
+    return num;
+  }
+
+  /**
+   * 嚴格將元金額轉為 Minor Units
+   * @param {any} value 元金額值
+   * @param {string} fieldName 欄位名稱
+   * @return {number} Minor Units
+   */
+  function yuanToMinorStrict(value, fieldName) {
+    if (value === undefined || value === null || value === '') {
+      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 缺少數值。');
+    }
+    var num = Number(value);
+    if (!Number.isFinite(num)) {
+      throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 必須為有效數值，拒絕：' + value);
+    }
+    
+    var str = String(value).trim().replace(/,/g, '');
+    var dotIdx = str.indexOf('.');
+    if (dotIdx !== -1) {
+      var fraction = str.substring(dotIdx + 1);
+      var cleanFraction = fraction.replace(/0+$/, '');
+      var scale = getMoneyScale();
+      if (cleanFraction.length > scale) {
+        throw new Error('🛑 財務錯誤：欄位 [' + fieldName + '] 金額精度超出範圍，拒絕：' + value);
+      }
+    }
+    
+    var scale = getMoneyScale();
+    var factor = Math.pow(10, scale);
+    var minor = Math.round(num * factor);
+    validateMinorAmount(minor);
+    return minor;
+  }
+
   return {
     yuanToMinor: yuanToMinor,
     minorToYuan: minorToYuan,
@@ -391,6 +446,8 @@ var MoneyService = (function() {
     convertCalculationToSettlement: convertCalculationToSettlement,
     calculateSettlementResidual: calculateSettlementResidual,
     reconcileCalculationAndSettlement: reconcileCalculationAndSettlement,
-    formatSettlementAmount: formatSettlementAmount
+    formatSettlementAmount: formatSettlementAmount,
+    parseMinorStrict: parseMinorStrict,
+    yuanToMinorStrict: yuanToMinorStrict
   };
 })();

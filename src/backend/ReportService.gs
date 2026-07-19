@@ -165,8 +165,8 @@ var ReportService = (function() {
         throw err;
       }
       var mealCount = Number(mealCountVal);
-      if (!Number.isFinite(mealCount) || !Number.isInteger(mealCount) || mealCount < 0) {
-        var err = new Error('🛑 報表欄位錯誤：用餐餐數必須為非負整數：' + mealCountVal);
+      if (mealCount !== 0 && mealCount !== 1) {
+        var err = new Error('🛑 報表欄位錯誤：用餐餐數限制為 0 或 1，實際得到：' + mealCountVal);
         err.code = 'REPORT_LEDGER_ROW_INVALID';
         throw err;
       }
@@ -223,14 +223,14 @@ var ReportService = (function() {
     // 2. Sum allocationLedgerTotalMinor
     var allocationLedgerTotalMinor = 0;
     allocs.forEach(function(al) {
-      var amt = parseInt(al.settlement_amount_minor || al.final_amount_minor || 0, 10);
+      var amt = MoneyService.parseMinorStrict(al.settlement_amount_minor || al.final_amount_minor || 0, 'settlement_amount_minor/final_amount_minor');
       allocationLedgerTotalMinor += amt;
     });
 
     // 3. Sum monthlyFundingSummaryTotalMinor
     var monthlyFundingSummaryTotalMinor = 0;
     fSums.forEach(function(fs) {
-      var amt = parseInt(fs.settlement_total_minor || fs.final_amount_minor || 0, 10);
+      var amt = MoneyService.parseMinorStrict(fs.settlement_total_minor || fs.final_amount_minor || 0, 'settlement_total_minor/final_amount_minor');
       monthlyFundingSummaryTotalMinor += amt;
     });
 
@@ -245,7 +245,7 @@ var ReportService = (function() {
       errSum.code = 'REPORT_SUMMARY_TOTAL_MISMATCH';
       throw errSum;
     }
-    if (ledgerGrossMinor !== parseInt(closing.gross_amount_minor || 0, 10)) {
+    if (ledgerGrossMinor !== MoneyService.parseMinorStrict(closing.gross_amount_minor || 0, 'gross_amount_minor')) {
       var errClose = new Error('🛑 報表金額不一致：封存明細加總 (' + ledgerGrossMinor + ' minor) 與月結單總餐費 (' + closing.gross_amount_minor + ' minor) 不符合！');
       errClose.code = 'CLOSING_GROSS_MISMATCH';
       throw errClose;
@@ -261,8 +261,8 @@ var ReportService = (function() {
 
     fSums.forEach(function(fs) {
       var source = fs.funding_source;
-      var amt = parseInt(fs.settlement_total_minor || fs.final_amount_minor || 0, 10);
-      var resid = parseInt(fs.residual_adjustment_minor || 0, 10);
+      var amt = MoneyService.parseMinorStrict(fs.settlement_total_minor || fs.final_amount_minor || 0, 'settlement_total_minor/final_amount_minor');
+      var resid = MoneyService.parseMinorStrict(fs.residual_adjustment_minor || 0, 'residual_adjustment_minor');
       
       residualMinor += resid;
       
@@ -277,14 +277,14 @@ var ReportService = (function() {
     var allocSums = {};
     allocs.forEach(function(al) {
       var src = al.funding_source;
-      var amt = parseInt(al.settlement_amount_minor || al.final_amount_minor || 0, 10);
+      var amt = MoneyService.parseMinorStrict(al.settlement_amount_minor || al.final_amount_minor || 0, 'settlement_amount_minor/final_amount_minor');
       allocSums[src] = (allocSums[src] || 0) + amt;
     });
 
     var summarySums = {};
     fSums.forEach(function(fs) {
       var src = fs.funding_source;
-      var amt = parseInt(fs.settlement_total_minor || fs.final_amount_minor || 0, 10);
+      var amt = MoneyService.parseMinorStrict(fs.settlement_total_minor || fs.final_amount_minor || 0, 'settlement_total_minor/final_amount_minor');
       summarySums[src] = (summarySums[src] || 0) + amt;
     });
 
@@ -301,7 +301,7 @@ var ReportService = (function() {
     // 套用個資隱私權限等級遮罩
     var dailyRows = [];
     ledgers.forEach(function(l) {
-      if (l.eligible_meal_count === '1' || l.eligible_meal_count === 1) {
+      if (Number(l.eligible_meal_count) === 1) {
         var name = l.student_name_masked || '';
         if (privacyLevel === 'PUBLIC_SUMMARY') {
           name = '***';
@@ -311,9 +311,9 @@ var ReportService = (function() {
         
         var priceMinor = 0;
         if (l.meal_price_minor_snapshot !== undefined && l.meal_price_minor_snapshot !== null && l.meal_price_minor_snapshot !== '') {
-          priceMinor = parseInt(l.meal_price_minor_snapshot, 10);
+          priceMinor = MoneyService.parseMinorStrict(l.meal_price_minor_snapshot, 'meal_price_minor_snapshot');
         } else if (l.meal_price_snapshot !== undefined && l.meal_price_snapshot !== null && l.meal_price_snapshot !== '') {
-          priceMinor = MoneyService.yuanToMinor(l.meal_price_snapshot);
+          priceMinor = MoneyService.yuanToMinorStrict(l.meal_price_snapshot, 'meal_price_snapshot');
         }
 
         dailyRows.push({
@@ -468,16 +468,20 @@ var ReportService = (function() {
     // 建立臨時 HTML 檔案供 conversion
     var tempFile = outputFolder.createFile('temp_render_' + new Date().getTime() + '.html', htmlContent, MimeType.HTML);
     
-    // 轉換為 PDF Blob
-    var blob = tempFile.getAs('application/pdf');
-    blob.setName(fileName);
-    
-    var pdfFile = outputFolder.createFile(blob);
-    
-    // 清理臨時 HTML 檔
-    tempFile.setTrashed(true);
-
-    return pdfFile;
+    try {
+      // 轉換為 PDF Blob
+      var blob = tempFile.getAs('application/pdf');
+      blob.setName(fileName);
+      
+      var pdfFile = outputFolder.createFile(blob);
+      return pdfFile;
+    } finally {
+      try {
+        tempFile.setTrashed(true);
+      } catch (e) {
+        // 防止清理錯誤掩蓋主要錯誤
+      }
+    }
   }
 
   /**

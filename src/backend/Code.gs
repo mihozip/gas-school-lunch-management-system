@@ -796,8 +796,8 @@ function apiValidateMonthlyClosingReadiness(yearMonth) {
     sources.forEach(function(src) {
       var filtered = list.filter(function(x) { return x.funding_source === src.source; });
       src.meals = filtered.reduce(function(acc, x) { return acc + (parseInt(x.meal_count, 10) || 0); }, 0);
-      src.amount = filtered.reduce(function(acc, x) { return acc + ((parseInt(x.final_amount_minor, 10) || 0) / 100); }, 0);
-      src.residual = filtered.reduce(function(acc, x) { return acc + ((parseInt(x.residual_adjustment_minor, 10) || 0) / 100); }, 0);
+      src.amount = filtered.reduce(function(acc, x) { return acc + MoneyService.minorToYuan(MoneyService.parseMinorStrict(x.final_amount_minor || 0, 'final_amount_minor')); }, 0);
+      src.residual = filtered.reduce(function(acc, x) { return acc + MoneyService.minorToYuan(MoneyService.parseMinorStrict(x.residual_adjustment_minor || 0, 'residual_adjustment_minor')); }, 0);
       if (src.source === 'township' || src.source === 'county') mealsCount = Math.max(mealsCount, src.meals);
     });
 

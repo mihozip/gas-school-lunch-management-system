@@ -94,6 +94,39 @@ var TestRunner = (function() {
     return counts;
   }
 
+  function listActiveFilesByPrefix(folder, prefix) {
+    var files = [];
+    var iter = folder.getFiles();
+    while (iter.hasNext()) {
+      var f = iter.next();
+      if (f.getName().indexOf(prefix) === 0 && !f.isTrashed()) {
+        files.push(f);
+      }
+    }
+    return files;
+  }
+
+  function assertNoNewActiveFiles(folder, prefix, beforeIds) {
+    var files = listActiveFilesByPrefix(folder, prefix);
+    var leaked = [];
+    files.forEach(function(f) {
+      if (beforeIds.indexOf(f.getId()) === -1) {
+        leaked.push(f.getId());
+      }
+    });
+    if (leaked.length > 0) {
+      throw new Error('🛑 偵測到殘留暫存檔案數量：' + leaked.length);
+    }
+  }
+
+  function getOrCreateSubFolder(parent, name) {
+    var folders = parent.getFoldersByName(name);
+    if (folders.hasNext()) {
+      return folders.next();
+    }
+    return parent.createFolder(name);
+  }
+
   /**
    * 執行全套 19 個測試
    */
@@ -337,7 +370,7 @@ var TestRunner = (function() {
       return { expected: true, actual: pDuration < 15000 };
     });
 
-    runTest('T13', '實際呼叫 Docs Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'DOCS', false, true, true, false, false, function() {
+    runTest('T13', '實際呼叫 Docs Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'DOCS', false, true, true, false, true, function() {
       var docId = Config.getProperty('TEST_TEMPLATE_DOC_ID');
       var closingId = 'CLOSE_TEST_T13';
       var templateId = 'TMP_TEST_T13';
@@ -353,16 +386,12 @@ var TestRunner = (function() {
 
       var folderId = Config.getReportRootFolderId();
       var testFolder = DriveApp.getFolderById(folderId);
+      var previewsFolder = getOrCreateSubFolder(testFolder, 'previews_temp');
 
       // Record active file IDs before rendering
-      var beforeFileIds = [];
-      var beforeIter = testFolder.getFiles();
-      while (beforeIter.hasNext()) {
-        var f = beforeIter.next();
-        if (f.getName().indexOf('temp_render_doc_') === 0 && !f.isTrashed()) {
-          beforeFileIds.push(f.getId());
-        }
-      }
+      var prefix = 'temp_render_doc_';
+      var beforeFiles = listActiveFilesByPrefix(previewsFolder, prefix);
+      var beforeFileIds = beforeFiles.map(function(f) { return f.getId(); });
 
       try {
         // 1. 建立 closed closing fixture
@@ -375,14 +404,14 @@ var TestRunner = (function() {
           meal_count_total: 1
         });
 
-        // 2. 建立真實的 CSV 檔案 (隔離在 testFolder)
-        fLedger = testFolder.createFile('temp_t13_ledger_' + testRunId + '.csv', 
+        // 2. 建立真實的 CSV 檔案 (隔離在 previewsFolder)
+        fLedger = previewsFolder.createFile('temp_t13_ledger_' + testRunId + '.csv', 
           'eligible_meal_count,student_name,student_name_masked,date,class_code_snapshot,meal_price_snapshot,meal_price_minor_snapshot\n1,陳小明,陳○明,2026-09-01,G1C1,60.00,6000',
           MimeType.PLAIN_TEXT);
-        fAlloc = testFolder.createFile('temp_t13_alloc_' + testRunId + '.csv',
+        fAlloc = previewsFolder.createFile('temp_t13_alloc_' + testRunId + '.csv',
           'funding_source,settlement_amount_minor,final_amount_minor\ntownship,6000,6000',
           MimeType.PLAIN_TEXT);
-        fSummary = testFolder.createFile('temp_t13_summary_' + testRunId + '.csv',
+        fSummary = previewsFolder.createFile('temp_t13_summary_' + testRunId + '.csv',
           'funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,6000,6000,6000,1',
           MimeType.PLAIN_TEXT);
 
@@ -428,7 +457,7 @@ var TestRunner = (function() {
           enabled: true
         });
 
-        // 5. 呼叫 generatePreviewReport (這會間接執行 renderDocsTemplate)
+        // 5. 呼叫 generatePreviewReport
         res = ReportService.generatePreviewReport(closingId, 'TOWNSHIP_FUNDING_APPLICATION', templateId);
         
         if (res && res.fileId) {
@@ -436,34 +465,23 @@ var TestRunner = (function() {
           mimeType = pdfFile.getMimeType();
           size = pdfFile.getSize();
           
-          // Check active file IDs after rendering
-          var afterIter = testFolder.getFiles();
-          var leakedFiles = [];
-          while (afterIter.hasNext()) {
-            var f = afterIter.next();
-            if (f.getName().indexOf('temp_render_doc_') === 0 && !f.isTrashed()) {
-              if (beforeFileIds.indexOf(f.getId()) === -1) {
-                leakedFiles.push(f.getId());
-              }
-            }
+          try {
+            assertNoNewActiveFiles(previewsFolder, prefix, beforeFileIds);
+            tempFileCleaned = true;
+          } catch (e) {
+            tempFileCleaned = false;
           }
-          tempFileCleaned = (leakedFiles.length === 0);
         }
 
-        // 6. 負向測試：建立一個未刪除的假 temp 檔案，驗證清理檢查是否正確回傳 false
-        var fakeFile = testFolder.createFile('temp_render_doc_fake_' + testRunId + '.doc', 'dummy', MimeType.PLAIN_TEXT);
+        // 6. 負向測試：建立一個未刪除的假 temp 檔案，驗證清理檢查是否正確拋出錯誤 (回傳 negativeCheckSuccess = true)
+        var fakeFile = previewsFolder.createFile(prefix + 'fake_' + testRunId + '.doc', 'dummy', MimeType.PLAIN_TEXT);
         try {
-          var checkIter = testFolder.getFiles();
-          var leakedCount = 0;
-          while (checkIter.hasNext()) {
-            var f = checkIter.next();
-            if (f.getName().indexOf('temp_render_doc_') === 0 && !f.isTrashed()) {
-              if (beforeFileIds.indexOf(f.getId()) === -1) {
-                leakedCount++;
-              }
-            }
+          try {
+            assertNoNewActiveFiles(previewsFolder, prefix, beforeFileIds);
+            negativeCheckSuccess = false;
+          } catch (e) {
+            negativeCheckSuccess = true;
           }
-          negativeCheckSuccess = (leakedCount > 0); // Should be true because of fakeFile
         } finally {
           fakeFile.setTrashed(true);
         }
@@ -494,7 +512,7 @@ var TestRunner = (function() {
       return { expected: expectedStr, actual: actualStr };
     });
 
-    runTest('T14', '實際呼叫 Sheets Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'SHEETS', false, true, false, true, false, function() {
+    runTest('T14', '實際呼叫 Sheets Renderer 產生 PDF 報表', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'SHEETS', false, true, false, true, true, function() {
       var sheetId = Config.getProperty('TEST_TEMPLATE_SHEET_ID');
       var closingId = 'CLOSE_TEST_T14';
       var templateId = 'TMP_TEST_T14';
@@ -510,16 +528,12 @@ var TestRunner = (function() {
 
       var folderId = Config.getReportRootFolderId();
       var testFolder = DriveApp.getFolderById(folderId);
+      var previewsFolder = getOrCreateSubFolder(testFolder, 'previews_temp');
 
       // Record active file IDs before rendering
-      var beforeFileIds = [];
-      var beforeIter = testFolder.getFiles();
-      while (beforeIter.hasNext()) {
-        var f = beforeIter.next();
-        if (f.getName().indexOf('temp_render_sheet_') === 0 && !f.isTrashed()) {
-          beforeFileIds.push(f.getId());
-        }
-      }
+      var prefix = 'temp_render_sheet_';
+      var beforeFiles = listActiveFilesByPrefix(previewsFolder, prefix);
+      var beforeFileIds = beforeFiles.map(function(f) { return f.getId(); });
 
       try {
         // 1. 建立 closed closing fixture
@@ -532,14 +546,14 @@ var TestRunner = (function() {
           meal_count_total: 1
         });
 
-        // 2. 建立真實的 CSV 檔案 (隔離在 testFolder)
-        fLedger = testFolder.createFile('temp_t14_ledger_' + testRunId + '.csv', 
+        // 2. 建立真實的 CSV 檔案 (隔離在 previewsFolder)
+        fLedger = previewsFolder.createFile('temp_t14_ledger_' + testRunId + '.csv', 
           'eligible_meal_count,student_name,student_name_masked,date,class_code_snapshot,meal_price_snapshot,meal_price_minor_snapshot\n1,陳小明,陳○明,2026-09-01,G1C1,60.00,6000',
           MimeType.PLAIN_TEXT);
-        fAlloc = testFolder.createFile('temp_t14_alloc_' + testRunId + '.csv',
+        fAlloc = previewsFolder.createFile('temp_t14_alloc_' + testRunId + '.csv',
           'funding_source,settlement_amount_minor,final_amount_minor\ntownship,6000,6000',
           MimeType.PLAIN_TEXT);
-        fSummary = testFolder.createFile('temp_t14_summary_' + testRunId + '.csv',
+        fSummary = previewsFolder.createFile('temp_t14_summary_' + testRunId + '.csv',
           'funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,6000,6000,6000,1',
           MimeType.PLAIN_TEXT);
 
@@ -585,7 +599,7 @@ var TestRunner = (function() {
           enabled: true
         });
 
-        // 5. 呼叫 generatePreviewReport (這會間接執行 renderSheetsTemplate)
+        // 5. 呼叫 generatePreviewReport
         res = ReportService.generatePreviewReport(closingId, 'COUNTY_FUNDING_APPLICATION', templateId);
         
         if (res && res.fileId) {
@@ -593,34 +607,23 @@ var TestRunner = (function() {
           mimeType = pdfFile.getMimeType();
           size = pdfFile.getSize();
           
-          // Check active file IDs after rendering
-          var afterIter = testFolder.getFiles();
-          var leakedFiles = [];
-          while (afterIter.hasNext()) {
-            var f = afterIter.next();
-            if (f.getName().indexOf('temp_render_sheet_') === 0 && !f.isTrashed()) {
-              if (beforeFileIds.indexOf(f.getId()) === -1) {
-                leakedFiles.push(f.getId());
-              }
-            }
+          try {
+            assertNoNewActiveFiles(previewsFolder, prefix, beforeFileIds);
+            tempFileCleaned = true;
+          } catch (e) {
+            tempFileCleaned = false;
           }
-          tempFileCleaned = (leakedFiles.length === 0);
         }
 
-        // 6. 負向測試：建立一個未刪除的假 temp 檔案，驗證清理檢查是否正確回傳 false
-        var fakeFile = testFolder.createFile('temp_render_sheet_fake_' + testRunId + '.sheet', 'dummy', MimeType.PLAIN_TEXT);
+        // 6. 負向測試：建立一個未刪除的假 temp 檔案，驗證清理檢查是否正確拋出錯誤 (回傳 negativeCheckSuccess = true)
+        var fakeFile = previewsFolder.createFile(prefix + 'fake_' + testRunId + '.sheet', 'dummy', MimeType.PLAIN_TEXT);
         try {
-          var checkIter = testFolder.getFiles();
-          var leakedCount = 0;
-          while (checkIter.hasNext()) {
-            var f = checkIter.next();
-            if (f.getName().indexOf('temp_render_sheet_') === 0 && !f.isTrashed()) {
-              if (beforeFileIds.indexOf(f.getId()) === -1) {
-                leakedCount++;
-              }
-            }
+          try {
+            assertNoNewActiveFiles(previewsFolder, prefix, beforeFileIds);
+            negativeCheckSuccess = false;
+          } catch (e) {
+            negativeCheckSuccess = true;
           }
-          negativeCheckSuccess = (leakedCount > 0); // Should be true because of fakeFile
         } finally {
           fakeFile.setTrashed(true);
         }

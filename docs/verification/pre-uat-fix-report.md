@@ -2,7 +2,7 @@
 
 ## 1. 修正前與修正後 Commit
 * **修正前 Commit**: `13f4ca7a1a36230101eb300281c62393faedc9c1`
-* **修正後 Commit**: `389c1498c118796b373ffb80b1ad34e33aed4935`
+* **修正後 Commit**: `c4f86d7af6c53bc1b8a59d57ce31eb163abd5f52`
 
 ---
 

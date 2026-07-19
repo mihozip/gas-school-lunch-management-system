@@ -100,20 +100,15 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 # 3. 驗證 clasp 授權狀態
-if ! STATUS_OUT=$(npx clasp status 2>&1); then
-  echo "${STATUS_OUT}"
-  exit 1
-fi
-if [[ "$STATUS_OUT" == *"No credentials found"* || "$STATUS_OUT" == *"unauthenticated"* ]]; then
+STATUS_OUT=$(npx clasp show-authorized-user --json 2>&1 || echo '{"loggedIn":false}')
+if [[ "$STATUS_OUT" != *"\"loggedIn\": true"* && "$STATUS_OUT" != *"authorizedUser"* ]]; then
   echo "🔑 [CLASP_LOGIN_REQUIRED] clasp 未授權登入，準備引導登入..."
   npx clasp login
   # 再次檢測登入
-  if ! STATUS_OUT=$(npx clasp status 2>&1); then
-    echo "${STATUS_OUT}"
-    exit 1
-  fi
-  if [[ "$STATUS_OUT" == *"No credentials"* || "$STATUS_OUT" == *"unauthenticated"* ]]; then
+  STATUS_OUT=$(npx clasp show-authorized-user --json 2>&1 || echo '{"loggedIn":false}')
+  if [[ "$STATUS_OUT" != *"\"loggedIn\": true"* && "$STATUS_OUT" != *"authorizedUser"* ]]; then
     echo "🛑 錯誤 [CLASP_LOGIN_REQUIRED]：未完成 Google 帳號授權，無法繼續部署。"
+    echo "錯誤細節: ${STATUS_OUT}"
     exit 1
   fi
 fi

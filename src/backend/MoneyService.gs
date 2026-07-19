@@ -58,7 +58,12 @@ var MoneyService = (function() {
    */
   function minorToYuan(minor) {
     if (minor === undefined || minor === null) return 0;
-    var m = parseInt(minor, 10);
+    var m = Number(minor);
+    if (!Number.isFinite(m) || !Number.isInteger(m) || m > SAFE_MAX || m < SAFE_MIN) {
+      var err = new Error('🛑 財務錯誤：minorToYuan 必須為安全整數範圍內的整數，實際得到：' + minor);
+      err.code = 'MONEY_INVALID_INTEGER';
+      throw err;
+    }
     validateMinorAmount(m);
     var scale = getMoneyScale();
     var factor = Math.pow(10, scale);
@@ -371,8 +376,7 @@ var MoneyService = (function() {
   function sumMinorAmounts(list) {
     var sum = 0;
     list.forEach(function(val) {
-      var v = parseInt(val, 10) || 0;
-      validateMinorAmount(v);
+      var v = parseMinorStrict(val, 'sum_minor_amounts_item', { allowNegative: true });
       sum += v;
     });
     validateMinorAmount(sum);

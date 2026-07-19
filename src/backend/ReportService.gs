@@ -321,8 +321,8 @@ var ReportService = (function() {
       fundingRows.push({
         funding_source: sourceLabel,
         meal_count: parseInt(fs.meal_count, 10) || 0,
-        gross_amount: MoneyService.minorToYuan(MoneyService.firstPresentValue(fs, ['gross_amount_minor'], 0)),
-        final_amount: MoneyService.minorToYuan(MoneyService.firstPresentValue(fs, ['settlement_total_minor', 'final_amount_minor']))
+        gross_amount: MoneyService.minorToYuan(MoneyService.parseMinorStrict(MoneyService.firstPresentValue(fs, ['gross_amount_minor'], 0), 'gross_amount_minor')),
+        final_amount: MoneyService.minorToYuan(MoneyService.parseMinorStrict(MoneyService.firstPresentValue(fs, ['settlement_total_minor', 'final_amount_minor']), 'settlement_total_minor/final_amount_minor'))
       });
     });
 

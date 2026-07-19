@@ -127,12 +127,23 @@ var TestRunner = (function() {
     return parent.createFolder(name);
   }
 
-  function assertTrashed(file, name) {
-    if (file) {
-      file.setTrashed(true);
-      if (!file.isTrashed()) {
-        throw new Error('🛑 檔案清理失敗，未被置入垃圾桶：' + name + ' (' + file.getId() + ')');
+  function cleanupFiles(files) {
+    if (!files || files.length === 0) return;
+    var errors = [];
+    files.forEach(function(item) {
+      if (item && item.file) {
+        try {
+          item.file.setTrashed(true);
+          if (!item.file.isTrashed()) {
+            errors.push('🛑 檔案清理失敗，未被置入垃圾桶：' + item.name + ' (' + item.file.getId() + ')');
+          }
+        } catch(e) {
+          errors.push('🛑 檔案清理異常：' + item.name + ' (' + (item.file.getId ? item.file.getId() : 'unknown') + ')，錯誤：' + e.message);
+        }
       }
+    });
+    if (errors.length > 0) {
+      throw new Error(errors.join('; '));
     }
   }
 
@@ -274,9 +285,61 @@ var TestRunner = (function() {
 
     // 🧪 19 個真實有效測試
     try {
-      runTest('T1', '元轉 minor units (整數分轉換)', [], 'UNIT', false, false, false, false, false, function() {
-      var minor = MoneyService.yuanToMinor(60.05);
-      return { expected: 6005, actual: minor };
+      runTest('T1', '元轉 minor units 嚴格轉換與錯誤排除', [], 'UNIT', false, false, false, false, false, function() {
+      var minor = MoneyService.yuanToMinorStrict('60.05', 'test_field');
+      
+      var errors = [];
+      
+      try {
+        MoneyService.yuanToMinorStrict('abc', 'test_field');
+        errors.push('abc passed');
+      } catch(e) {
+        if (e.code !== 'MONEY_INVALID_DECIMAL') errors.push('abc code: ' + e.code);
+      }
+      
+      try {
+        MoneyService.yuanToMinorStrict('--', 'test_field');
+        errors.push('-- passed');
+      } catch(e) {
+        if (e.code !== 'MONEY_INVALID_DECIMAL') errors.push('-- code: ' + e.code);
+      }
+      
+      try {
+        MoneyService.yuanToMinorStrict('1e2', 'test_field');
+        errors.push('1e2 passed');
+      } catch(e) {
+        if (e.code !== 'MONEY_INVALID_DECIMAL') errors.push('1e2 code: ' + e.code);
+      }
+      
+      try {
+        MoneyService.yuanToMinorStrict('60.001', 'test_field');
+        errors.push('60.001 passed');
+      } catch(e) {
+        if (e.code !== 'MONEY_PRECISION_EXCEEDED') errors.push('60.001 code: ' + e.code);
+      }
+      
+      try {
+        MoneyService.yuanToMinorStrict('-60', 'test_field');
+        errors.push('-60 passed');
+      } catch(e) {
+        if (e.code !== 'MONEY_NEGATIVE_NOT_ALLOWED') errors.push('-60 code: ' + e.code);
+      }
+      
+      try {
+        MoneyService.parseMinorStrict('6000.9', 'test_field');
+        errors.push('6000.9 passed');
+      } catch(e) {
+        if (e.code !== 'MONEY_INVALID_INTEGER') errors.push('6000.9 code: ' + e.code);
+      }
+      
+      var val8 = MoneyService.firstPresentValue({ amount: 0, fallback: 999 }, ['amount', 'fallback']);
+      if (val8 !== 0) errors.push('val8: ' + val8);
+      
+      var val9 = MoneyService.parseMinorStrict('-1', 'test_field', { allowNegative: true });
+      if (val9 !== -1) errors.push('val9: ' + val9);
+      
+      var actualStr = errors.length === 0 ? 'SUCCESS' : errors.join('; ');
+      return { expected: '6005,SUCCESS', actual: minor + ',' + actualStr };
     });
 
     runTest('T2', 'minor units 轉顯示金額', [], 'UNIT', false, false, false, false, false, function() {
@@ -496,28 +559,31 @@ var TestRunner = (function() {
             negativeCheckSuccess = true;
           }
         } finally {
-          fakeFile.setTrashed(true);
+          cleanupFiles([{ file: fakeFile, name: 'fakeFile' }]);
         }
 
       } finally {
-        if (pdfFile) {
-          assertTrashed(pdfFile, 'pdfFile');
+        var cleanupErrors = [];
+        try {
+          cleanupFiles([
+            { file: pdfFile, name: 'pdfFile' },
+            { file: fLedger, name: 'fLedger' },
+            { file: fAlloc, name: 'fAlloc' },
+            { file: fSummary, name: 'fSummary' }
+          ]);
+        } catch(e) {
+          cleanupErrors.push(e.message);
         }
-        if (fLedger) {
-          assertTrashed(fLedger, 'fLedger');
+        
+        try { SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS); } catch(e) { cleanupErrors.push(e.message); }
+        
+        if (cleanupErrors.length > 0) {
+          throw new Error(cleanupErrors.join('; '));
         }
-        if (fAlloc) {
-          assertTrashed(fAlloc, 'fAlloc');
-        }
-        if (fSummary) {
-          assertTrashed(fSummary, 'fSummary');
-        }
-        // Clean up fixtures
-        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
-        SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS);
       }
 
       var expectedStr = 'true,application/pdf,true,true,true';
@@ -642,28 +708,31 @@ var TestRunner = (function() {
             negativeCheckSuccess = true;
           }
         } finally {
-          fakeFile.setTrashed(true);
+          cleanupFiles([{ file: fakeFile, name: 'fakeFile' }]);
         }
 
       } finally {
-        if (pdfFile) {
-          assertTrashed(pdfFile, 'pdfFile');
+        var cleanupErrors = [];
+        try {
+          cleanupFiles([
+            { file: pdfFile, name: 'pdfFile' },
+            { file: fLedger, name: 'fLedger' },
+            { file: fAlloc, name: 'fAlloc' },
+            { file: fSummary, name: 'fSummary' }
+          ]);
+        } catch(e) {
+          cleanupErrors.push(e.message);
         }
-        if (fLedger) {
-          assertTrashed(fLedger, 'fLedger');
+        
+        try { SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS); } catch(e) { cleanupErrors.push(e.message); }
+        
+        if (cleanupErrors.length > 0) {
+          throw new Error(cleanupErrors.join('; '));
         }
-        if (fAlloc) {
-          assertTrashed(fAlloc, 'fAlloc');
-        }
-        if (fSummary) {
-          assertTrashed(fSummary, 'fSummary');
-        }
-        // Clean up fixtures
-        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
-        SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS);
       }
 
       var expectedStr = 'true,application/pdf,true,true,true';
@@ -671,15 +740,138 @@ var TestRunner = (function() {
       return { expected: expectedStr, actual: actualStr };
     });
 
-    runTest('T15', '建立 HTML 報表範本', ['ReportTemplates'], 'UNIT', false, false, false, false, false, function() {
-      var t = ReportService.createReportTemplate({
-        report_type: 'DAILY_SCHOOL_MEAL_SUMMARY',
-        template_name: '全校每日統計範本(Html)',
-        template_format: 'HTML'
-      });
-      // 清理
-      SheetRepository.deleteRecordById('ReportTemplates', 'template_id', t.template_id);
-      return { expected: 'draft', actual: t.status };
+    runTest('T15', 'HTML 報表渲染器產出 PDF 與暫存檔安全清理驗證', ['MonthClosings', 'ClosingArtifacts', 'ReportTemplates'], 'UNIT', false, false, false, false, false, function() {
+      var testRunId = Utils.generateUUID();
+      var suffix = testRunId.substring(0, 8);
+      var closingId = 'CLOSE_T15_' + suffix;
+      var templateId = 'TMP_T15_' + suffix;
+      var artL = 'ART_T15_L_' + suffix;
+      var artA = 'ART_T15_A_' + suffix;
+      var artS = 'ART_T15_S_' + suffix;
+      
+      var res;
+      var mimeType = '';
+      var size = -1;
+      
+      var folderId = Config.getReportRootFolderId();
+      var testFolder = DriveApp.getFolderById(folderId);
+      
+      var beforeFileIds = [];
+      var filesIter = testFolder.getFiles();
+      while (filesIter.hasNext()) {
+        beforeFileIds.push(filesIter.next().getId());
+      }
+      
+      var fLedger, fAlloc, fSummary, pdfFile;
+      var tempFileCleaned = false;
+
+      try {
+        // 1. 建立 closed closing fixture
+        SheetRepository.appendRecord('MonthClosings', {
+          closing_id: closingId,
+          year_month: '2026-09',
+          status: 'closed',
+          is_current: true,
+          gross_amount_minor: 6000,
+          meal_count_total: 1
+        });
+
+        // 2. 建立真實的 CSV 檔案 (隔離在 testFolder)
+        fLedger = testFolder.createFile('temp_t15_ledger_' + testRunId + '.csv', 
+          'eligible_meal_count,student_name,student_name_masked,date,class_code_snapshot,meal_price_snapshot,meal_price_minor_snapshot\n1,陳小明,陳○明,2026-09-01,G1C1,60.00,6000',
+          MimeType.PLAIN_TEXT);
+        fAlloc = testFolder.createFile('temp_t15_alloc_' + testRunId + '.csv',
+          'funding_source,settlement_amount_minor,final_amount_minor\ntownship,6000,6000',
+          MimeType.PLAIN_TEXT);
+        fSummary = testFolder.createFile('temp_t15_summary_' + testRunId + '.csv',
+          'funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,6000,6000,6000,1',
+          MimeType.PLAIN_TEXT);
+
+        // 3. 建立必要 artifacts
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: artL,
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'dailyMealLedger_export',
+          file_id: fLedger.getId(),
+          archived: false,
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: artA,
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'fundingAllocationLedger_export',
+          file_id: fAlloc.getId(),
+          archived: false,
+          enabled: true
+        });
+
+        SheetRepository.appendRecord('ClosingArtifacts', {
+          artifact_id: artS,
+          closing_id: closingId,
+          year_month: '2026-09',
+          artifact_type: 'monthlyFundingSummary_export',
+          file_id: fSummary.getId(),
+          archived: false,
+          enabled: true
+        });
+
+        // 4. 建立 HTML 範本
+        SheetRepository.appendRecord('ReportTemplates', {
+          template_id: templateId,
+          report_type: 'DAILY_SCHOOL_MEAL_SUMMARY',
+          template_name: '全校每日統計範本(Html)',
+          template_format: 'HTML',
+          template_file_id: '',
+          status: 'approved',
+          enabled: true
+        });
+
+        // 5. 呼叫 generatePreviewReport
+        res = ReportService.generatePreviewReport(closingId, 'DAILY_SCHOOL_MEAL_SUMMARY', templateId);
+        
+        if (res && res.fileId) {
+          pdfFile = DriveApp.getFileById(res.fileId);
+          mimeType = pdfFile.getMimeType();
+          size = pdfFile.getSize();
+          
+          try {
+            assertNoNewActiveFiles(testFolder, 'temp_render_', beforeFileIds);
+            tempFileCleaned = true;
+          } catch (e) {
+            tempFileCleaned = false;
+          }
+        }
+
+      } finally {
+        var cleanupErrors = [];
+        try {
+          cleanupFiles([
+            { file: pdfFile, name: 'pdfFile' },
+            { file: fLedger, name: 'fLedger' },
+            { file: fAlloc, name: 'fAlloc' },
+            { file: fSummary, name: 'fSummary' }
+          ]);
+        } catch(e) {
+          cleanupErrors.push(e.message);
+        }
+        
+        try { SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ReportTemplates', 'template_id', templateId); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS); } catch(e) { cleanupErrors.push(e.message); }
+        
+        if (cleanupErrors.length > 0) {
+          throw new Error(cleanupErrors.join('; '));
+        }
+      }
+
+      var expectedStr = 'true,application/pdf,true,true';
+      var actualStr = (!!res && res.success) + ',' + mimeType + ',' + (size > 0) + ',' + tempFileCleaned;
+      return { expected: expectedStr, actual: actualStr };
     });
 
     runTest('T16', '核准範本與版本規格更新', ['ReportTemplates'], 'INTEGRATION', false, false, false, false, false, function() {
@@ -751,6 +943,8 @@ var TestRunner = (function() {
       var model;
       var triggered = false;
       var errorCode = '';
+      var triggered10 = false;
+      var errorCode10 = '';
 
       var folderId = Config.getReportRootFolderId();
       var testFolder = DriveApp.getFolderById(folderId);
@@ -823,26 +1017,113 @@ var TestRunner = (function() {
           errorCode = ex.code || '';
         }
 
+        // 6. 負向測試：eligible_meal_count = 0 且 meal_price_snapshot = abc，必須拋出 MONEY_INVALID_DECIMAL
+        var testRunId2 = Utils.generateUUID();
+        var suffix2 = testRunId2.substring(0, 8);
+        var closingId2 = 'CLOSE_T18_NEG_' + suffix2;
+        var artL2 = 'ART_T18_L_NEG_' + suffix2;
+        var artA2 = 'ART_T18_A_NEG_' + suffix2;
+        var artS2 = 'ART_T18_S_NEG_' + suffix2;
+        
+        var fLedger2, fAlloc2, fSummary2;
+        
+        try {
+          SheetRepository.appendRecord('MonthClosings', {
+            closing_id: closingId2,
+            year_month: '2026-09',
+            status: 'closed',
+            is_current: true,
+            gross_amount_minor: 0,
+            meal_count_total: 0
+          });
+          
+          fLedger2 = testFolder.createFile('temp_t18_neg_ledger_' + testRunId2 + '.csv', 
+            'eligible_meal_count,student_name,student_name_masked,date,class_code_snapshot,meal_price_snapshot,meal_price_minor_snapshot\n0,陳小明,陳○明,2026-09-01,G1C1,abc,',
+            MimeType.PLAIN_TEXT);
+          fAlloc2 = testFolder.createFile('temp_t18_neg_alloc_' + testRunId2 + '.csv',
+            'funding_source,settlement_amount_minor,final_amount_minor\ntownship,0,0',
+            MimeType.PLAIN_TEXT);
+          fSummary2 = testFolder.createFile('temp_t18_neg_summary_' + testRunId2 + '.csv',
+            'funding_source,settlement_total_minor,final_amount_minor,gross_amount_minor,meal_count\ntownship,0,0,0,0',
+            MimeType.PLAIN_TEXT);
+            
+          SheetRepository.appendRecord('ClosingArtifacts', {
+            artifact_id: artL2,
+            closing_id: closingId2,
+            year_month: '2026-09',
+            artifact_type: 'dailyMealLedger_export',
+            file_id: fLedger2.getId(),
+            archived: false,
+            enabled: true
+          });
+          SheetRepository.appendRecord('ClosingArtifacts', {
+            artifact_id: artA2,
+            closing_id: closingId2,
+            year_month: '2026-09',
+            artifact_type: 'fundingAllocationLedger_export',
+            file_id: fAlloc2.getId(),
+            archived: false,
+            enabled: true
+          });
+          SheetRepository.appendRecord('ClosingArtifacts', {
+            artifact_id: artS2,
+            closing_id: closingId2,
+            year_month: '2026-09',
+            artifact_type: 'monthlyFundingSummary_export',
+            file_id: fSummary2.getId(),
+            archived: false,
+            enabled: true
+          });
+          
+          ReportService.buildReportDataModel(closingId2, 'PUBLIC_SUMMARY');
+        } catch(ex) {
+          triggered10 = true;
+          errorCode10 = ex.code || ex.message || '';
+        } finally {
+          var cleanupErrors2 = [];
+          try {
+            cleanupFiles([
+              { file: fLedger2, name: 'fLedger2' },
+              { file: fAlloc2, name: 'fAlloc2' },
+              { file: fSummary2, name: 'fSummary2' }
+            ]);
+          } catch(e) {
+            cleanupErrors2.push(e.message);
+          }
+          try { SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId2); } catch(e) { cleanupErrors2.push(e.message); }
+          try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL2); } catch(e) { cleanupErrors2.push(e.message); }
+          try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA2); } catch(e) { cleanupErrors2.push(e.message); }
+          try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS2); } catch(e) { cleanupErrors2.push(e.message); }
+          if (cleanupErrors2.length > 0) {
+            throw new Error(cleanupErrors2.join('; '));
+          }
+        }
+
       } finally {
-        if (fLedger) {
-          assertTrashed(fLedger, 'fLedger');
+        var cleanupErrors = [];
+        try {
+          cleanupFiles([
+            { file: fLedger, name: 'fLedger' },
+            { file: fAlloc, name: 'fAlloc' },
+            { file: fSummary, name: 'fSummary' }
+          ]);
+        } catch(e) {
+          cleanupErrors.push(e.message);
         }
-        if (fAlloc) {
-          assertTrashed(fAlloc, 'fAlloc');
+        
+        try { SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA); } catch(e) { cleanupErrors.push(e.message); }
+        try { SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS); } catch(e) { cleanupErrors.push(e.message); }
+        
+        if (cleanupErrors.length > 0) {
+          throw new Error(cleanupErrors.join('; '));
         }
-        if (fSummary) {
-          assertTrashed(fSummary, 'fSummary');
-        }
-        // 清理 fixtures
-        SheetRepository.deleteRecordById('MonthClosings', 'closing_id', closingId);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artL);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artA);
-        SheetRepository.deleteRecordById('ClosingArtifacts', 'artifact_id', artS);
       }
       
       var name = model && model.DAILY_ROWS && model.DAILY_ROWS[0] ? model.DAILY_ROWS[0].student_name : '';
-      var expectedStr = '***,true,REPORT_SUMMARY_TOTAL_MISMATCH';
-      var actualStr = name + ',' + triggered + ',' + errorCode;
+      var expectedStr = '***,true,REPORT_SUMMARY_TOTAL_MISMATCH,true,MONEY_INVALID_DECIMAL';
+      var actualStr = name + ',' + triggered + ',' + errorCode + ',' + triggered10 + ',' + errorCode10;
       return { expected: expectedStr, actual: actualStr };
     });
 

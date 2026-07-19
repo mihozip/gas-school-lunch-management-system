@@ -443,6 +443,9 @@ function checkDeployScriptCreationCommands() {
   if (!content.includes('--type standalone')) {
     logError('deploy.sh 中自動建立專案必須使用 --type standalone 參數！');
   }
+  if (content.includes('clasp status')) {
+    logError('deploy.sh 中不得使用 clasp status 進行登入驗證，必須使用 show-authorized-user --json！');
+  }
   console.log('✓ deploy.sh script creation commands check completed.');
 }
 
@@ -470,11 +473,11 @@ function checkReportCommitHash() {
   }
   const reportCommit = match[1];
   
-  let gitHead = '';
+  let latestProgramCommit = '';
   try {
-    gitHead = execSync('git rev-parse HEAD').toString().trim();
+    latestProgramCommit = execSync('git log -1 --format=%H -- src tools deploy.sh').toString().trim();
   } catch (e) {
-    logError('無法透過 git rev-parse HEAD 取得 Commit Hash！');
+    logError('無法取得最新程式 Commit Hash！');
     return;
   }
   
@@ -484,8 +487,8 @@ function checkReportCommitHash() {
     return file.startsWith('src/') || file.startsWith('tools/') || file === 'deploy.sh';
   });
   
-  if (!hasProgramChanges && reportCommit !== gitHead) {
-    logError(`驗證報告中的修正後 Commit (${reportCommit}) 與最新程式 Commit (${gitHead}) 不符！`);
+  if (!hasProgramChanges && reportCommit !== latestProgramCommit) {
+    logError(`驗證報告中的修正後 Commit (${reportCommit}) 與最新程式 Commit (${latestProgramCommit}) 不符！`);
   } else {
     console.log(`✓ pre-uat-fix-report.md commit hash check passed (${reportCommit}).`);
   }

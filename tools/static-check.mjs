@@ -525,14 +525,39 @@ function checkPreUatIntegrityRules() {
   if (fs.existsSync(runnerPath)) {
     const content = fs.readFileSync(runnerPath, 'utf8');
     
-    // 1. T9, T12 enabled rules fixture check
-    const t9Match = content.match(/runTest\('T9'[\s\S]*?runTest\('T10'/);
-    if (t9Match && (!t9Match[0].includes("appendRecord('SubsidyRules'") || !t9Match[0].includes("appendRecord('SubsidyCategories'"))) {
-      logError("TestRunner.gs T9 測試必須有自己的 enabled 測試規則與分類 fixture！");
+    // 1. TestRunner 對 SubsidyRules 建立 fixture 時，禁止使用 subsidy_rule_id，必須使用 rule_id
+    if (content.includes("subsidy_rule_id:") && content.includes("appendRecord('SubsidyRules'")) {
+      logError("TestRunner.gs 中對 SubsidyRules 建立 fixture 時，禁止使用 subsidy_rule_id，必須使用 rule_id！");
     }
+    
+    // 2. TestRunner 對 SubsidyRules 執行 deleteRecordById 時，主鍵必須為 rule_id
+    if (content.includes("deleteRecordById('SubsidyRules', 'subsidy_rule_id'")) {
+      logError("TestRunner.gs 中對 SubsidyRules 刪除 fixture 時，主鍵必須為 rule_id，禁止使用 subsidy_rule_id！");
+    }
+
+    // 3. T9 malformed rate 測試不得與既有相同 funding_source 規則使用同一 subsidy_category_id
+    const t9Match = content.match(/runTest\('T9'[\s\S]*?runTest\('T10'/);
+    if (t9Match) {
+      if (!t9Match[0].includes("appendRecord('SubsidyRules'") || !t9Match[0].includes("appendRecord('SubsidyCategories'")) {
+        logError("TestRunner.gs T9 測試必須有自己的 enabled 測試規則與分類 fixture！");
+      }
+      if (!t9Match[0].includes("CAT_T9_RATE_") || !t9Match[0].includes("RULE_RATE_T9_")) {
+        logError("TestRunner.gs T9 malformed rate 測試必須建立與使用獨立的分類 CAT_T9_RATE_<suffix> 與規則！");
+      }
+    }
+
+    // T12 fixture check
     const t12Match = content.match(/runTest\('T12'[\s\S]*?runTest\('T13'/);
     if (t12Match && (!t12Match[0].includes("appendRecord('SubsidyRules'") || !t12Match[0].includes("appendRecord('SubsidyCategories'"))) {
       logError("TestRunner.gs T12 測試必須有自己的 enabled 測試規則與分類 fixture！");
+    }
+
+    // T12 performance loop check (avoid repeat sheet repository lookups)
+    if (t12Match) {
+      const loopMatch = t12Match[0].match(/for\s*\([\s\S]*?calculateFundingForLedgerRow\(([\s\S]*?)\)[\s\S]*?\}/);
+      if (loopMatch && !loopMatch[1].includes("options")) {
+        logError("TestRunner.gs T12 效能測試必須傳入 options 以避免在 1000 次迴圈內重複進行試算表 I/O 查詢！");
+      }
     }
 
     // 2. T10 cleanup check
@@ -567,6 +592,14 @@ function checkPreUatIntegrityRules() {
     if (t15Match && (!t15Match[0].includes("getParents()") || !t15Match[0].includes("parentMatched"))) {
       logError("TestRunner.gs T15 測試必須驗證產出 PDF 是否存放於 previewsFolder 子資料夾！");
     }
+
+    // T18 metadata check
+    const t18Match = content.match(/runTest\('T18'[\s\S]*?runTest\('T19'/);
+    if (t18Match) {
+      if (!t18Match[0].includes("'INTEGRATION'") || !t18Match[0].match(/runTest\('T18',\s*'[^']*',\s*\[[^\]]*\],\s*'INTEGRATION',\s*false,\s*true/)) {
+        logError("TestRunner.gs T18 測試必須被設定為 INTEGRATION 類型，且 requires_drive 必須為 true！");
+      }
+    }
   }
 
   if (fs.existsSync(fundingPath)) {
@@ -580,6 +613,19 @@ function checkPreUatIntegrityRules() {
     // 6. FundingCalculationService fixed amount yuanToMinor check
     if (content.includes("MoneyService.yuanToMinor(fixedYuan)")) {
       logError("FundingCalculationService.gs 固定金額不得使用寬鬆 yuanToMinor，必須使用 strict money parser！");
+    }
+
+    // 4. FundingCalculationService 禁止 rule.subsidy_amount || '0'
+    if (content.includes("rule.subsidy_amount || '0'") || content.includes('rule.subsidy_amount || "0"')) {
+      logError("FundingCalculationService.gs 中禁止使用 rule.subsidy_amount || '0' 作為預設值，必須進行必填與類型校驗！");
+    }
+
+    // 5 & 6. percentage / fixed_amount 規則必須有缺值檢查
+    if (!content.includes("SUBSIDY_RATE_MISSING")) {
+      logError("FundingCalculationService.gs 的 percentage 規則必須具備費率缺值檢查 (SUBSIDY_RATE_MISSING)！");
+    }
+    if (!content.includes("SUBSIDY_AMOUNT_MISSING")) {
+      logError("FundingCalculationService.gs 的 fixed_amount 規則必須具備金額缺值檢查 (SUBSIDY_AMOUNT_MISSING)！");
     }
   }
 

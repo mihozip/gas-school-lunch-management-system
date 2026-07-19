@@ -178,19 +178,38 @@ var FundingCalculationService = (function() {
 
     // 3. 逐條規則計算 Raw Amount (分數或小數)
     sortedRules.forEach(function(rule) {
-      var bpsVal = rule.subsidy_rate;
-      if (bpsVal === undefined || bpsVal === null || bpsVal === '') {
-        bpsVal = 0;
-      }
-      var bps = Number(bpsVal);
-      if (!Number.isFinite(bps) || !Number.isInteger(bps)) {
-        var err = new Error('🛑 費率必須為安全整數，實際得到：' + bpsVal);
-        err.code = 'SUBSIDY_RATE_INVALID';
+      var bps = 0;
+      var fixedMinor = 0;
+
+      if (rule.calculation_type === 'percentage') {
+        var bpsVal = rule.subsidy_rate;
+        if (bpsVal === undefined || bpsVal === null || bpsVal === '') {
+          var err = new Error('🛑 補助比例 (subsidy_rate) 必填。');
+          err.code = 'SUBSIDY_RATE_MISSING';
+          throw err;
+        }
+        bps = Number(bpsVal);
+        if (!Number.isFinite(bps) || !Number.isInteger(bps)) {
+          var err = new Error('🛑 費率必須為安全整數，實際得到：' + bpsVal);
+          err.code = 'SUBSIDY_RATE_INVALID';
+          throw err;
+        }
+        SubsidyRuleService.validateRateBasisPoints(bps);
+        fixedMinor = 0;
+      } else if (rule.calculation_type === 'fixed_amount') {
+        var amtVal = rule.subsidy_amount;
+        if (amtVal === undefined || amtVal === null || amtVal === '') {
+          var err = new Error('🛑 固定補助金額 (subsidy_amount) 必填。');
+          err.code = 'SUBSIDY_AMOUNT_MISSING';
+          throw err;
+        }
+        fixedMinor = MoneyService.yuanToMinorStrict(amtVal, 'subsidy_amount');
+        bps = 0;
+      } else {
+        var err = new Error('🛑 未知的補助計算類型：' + rule.calculation_type);
+        err.code = 'CALCULATION_TYPE_INVALID';
         throw err;
       }
-      SubsidyRuleService.validateRateBasisPoints(bps);
-
-      var fixedMinor = MoneyService.yuanToMinorStrict(rule.subsidy_amount || '0', 'subsidy_amount');
 
       var alloc = {
         allocation_id: 'ALC_' + ledgerRow.ledger_id.substring(7) + '_' + rule.funding_source + '_' + Math.floor(Math.random() * 100),
